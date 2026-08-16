@@ -48,6 +48,7 @@ def main() -> None:
 
     prepare_npm = text.split("  prepare-npm:\n", 1)[1].split("  publish-npm:\n", 1)[0]
     publish_npm = text.split("  publish-npm:\n", 1)[1].split("  publish-github:\n", 1)[0]
+    publish_github = text.split("  publish-github:\n", 1)[1].split("  publish-web:\n", 1)[0]
     publish_web = text.split("  publish-web:\n", 1)[1]
     if "id-token: none" not in prepare_npm or "environment: production" in prepare_npm:
         raise SystemExit("npm canonicalization must remain outside the production/OIDC boundary")
@@ -59,8 +60,22 @@ def main() -> None:
     for forbidden in ("VERCEL_TEAM_SLUG", "--scope", "vercel alias"):
         if forbidden in publish_web:
             raise SystemExit(f"Vercel publication must use the exact linked org/project without {forbidden}")
+    if "timeout-minutes: 45" not in publish_github:
+        raise SystemExit("GitHub desktop publication must allow enough time for the full macOS asset set")
     if "target_commitish" in publisher_text:
         raise SystemExit("GitHub release metadata must not replace exact Git ref verification")
+    for marker in (
+        "desktop-macos-dmg",
+        "desktop-macos-zip",
+        "desktop-macos-blockmap",
+        "desktop-macos-updater-manifest",
+        "validateMacUpdaterMetadata",
+    ):
+        if marker not in contract_text:
+            raise SystemExit(f"release contract is missing Canary macOS policy marker: {marker}")
+    for marker in ("releaseAssetPaths", "const assetPaths = releaseAssetPaths(root, manifest)"):
+        if marker not in publisher_text:
+            raise SystemExit(f"GitHub publisher is missing deterministic asset-order policy: {marker}")
     control_sha = re.search(r'WORKER_CONTROL_SHA = "([0-9a-f]{40})"', contract_text)
     if control_sha is None or len(set(control_sha.group(1))) == 1:
         raise SystemExit("private worker-control SHA must be an exact non-placeholder commit")

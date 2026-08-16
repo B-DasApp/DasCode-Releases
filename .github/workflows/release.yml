@@ -240,7 +240,7 @@ jobs:
       - name: Safely extract Actions artifact
         run: python3 scripts/safe-extract-zip.py "$RUNNER_TEMP/release-bundle.zip" "$RUNNER_TEMP/release-bundle"
 
-      - name: Verify manifest, checksums, updater, npm and static web payload
+      - name: Verify manifest, checksums, updater manifests, npm and static web payload
         run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.authorize.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --canary-marker-sha "${{ steps.dispatch.outputs.canary_marker_sha }}"
 
       - name: Upload only the verified publication bundle
@@ -360,7 +360,7 @@ jobs:
     needs: [authorize, acquire, publish-npm]
     if: needs.acquire.result == 'success' && needs.publish-npm.result == 'success'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 45
     environment: production
     permissions:
       contents: read

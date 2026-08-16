@@ -2,7 +2,11 @@
 
 import { createReadStream, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { releaseAssetNames, sha256File } from "./lib/release-contract.mjs";
+import {
+  releaseAssetNames,
+  releaseAssetPaths,
+  sha256File,
+} from "./lib/release-contract.mjs";
 
 const repository = "B-DasApp/DasCode-Releases";
 const apiRoot = "https://api.github.com";
@@ -107,23 +111,15 @@ async function main() {
   const title = `DasCode ${tag}`;
   const prerelease = option("prerelease") === "true";
   const makeLatest = option("make-latest") === "true";
-  const body = `Verified ${manifest.channel} release built from source commit ${manifest.source.sha}.\n\nController contract: ${JSON.stringify({ channel: manifest.channel, sourceSha: manifest.source.sha, makeLatest })}`;
+  const macosNotice = manifest.files.some((file) => file.role.startsWith("desktop-macos-"))
+    ? " macOS artifacts are unsigned manual-install previews; reliable automatic updates and native passkeys require a future signed and notarized build."
+    : "";
+  const body = `Verified ${manifest.channel} release built from source commit ${manifest.source.sha}.\n\nDesktop signing: the Windows artifact is unsigned.${macosNotice}\n\nController contract: ${JSON.stringify({ channel: manifest.channel, sourceSha: manifest.source.sha, makeLatest })}`;
   const repoResponse = await api(token, `/repos/${repository}`);
   const repo = await repoResponse.json();
   invariant(String(repo.id) === "1320700776" && repo.full_name === repository, "Public release repository identity mismatch.");
   await requireReleaseTag(token, tag, target, true);
-  const unorderedAssetPaths = [
-    join(root, "release-manifest.json"),
-    join(root, "SHA256SUMS"),
-    ...manifest.files.filter((file) => file.role.startsWith("desktop-")).map((file) => join(root, file.path)),
-  ];
-  const roleOrder = new Map([["desktop-installer", 0], ["desktop-blockmap", 1], ["release-metadata", 2], ["desktop-updater-manifest", 3]]);
-  const roleForPath = (path) => {
-    const relative = path.slice(root.length + 1).replaceAll("\\", "/");
-    if (relative === "release-manifest.json" || relative === "SHA256SUMS") return "release-metadata";
-    return manifest.files.find((file) => file.path === relative)?.role;
-  };
-  const assetPaths = unorderedAssetPaths.sort((left, right) => roleOrder.get(roleForPath(left)) - roleOrder.get(roleForPath(right)));
+  const assetPaths = releaseAssetPaths(root, manifest);
   const names = releaseAssetNames(assetPaths);
   invariant(new Set(names.map((name) => name.toLowerCase())).size === names.length, "Release asset names collide.");
   const expected = new Map();

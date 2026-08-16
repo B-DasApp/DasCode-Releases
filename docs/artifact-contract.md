@@ -11,7 +11,8 @@ The final Actions artifact is named `release-bundle-<request_id>`. Intermediate 
 artifacts may coexist; the controller selects only one exact, case-sensitive final name, verifies its
 non-expired artifact ID and `sha256:` REST digest, and downloads it with a freshly minted App token.
 
-The ZIP has this top-level structure and no unlisted files or links:
+The ZIP has this top-level structure and no unlisted files or links. Stable and Nightly contain the
+five common payloads. Canary additionally contains the nine macOS payloads shown below:
 
 ```text
 release-manifest.json
@@ -19,16 +20,25 @@ SHA256SUMS
 desktop/<Windows x64 installer>.exe
 desktop/<Windows x64 installer>.exe.blockmap
 desktop/latest.yml | nightly.yml | canary.yml
+desktop/DasCode-Canary-<version>-arm64.dmg                 # Canary only
+desktop/DasCode-Canary-<version>-arm64.dmg.blockmap        # Canary only
+desktop/DasCode-Canary-<version>-arm64.zip                 # Canary only
+desktop/DasCode-Canary-<version>-arm64.zip.blockmap        # Canary only
+desktop/DasCode-Canary-<version>-x64.dmg                   # Canary only
+desktop/DasCode-Canary-<version>-x64.dmg.blockmap          # Canary only
+desktop/DasCode-Canary-<version>-x64.zip                   # Canary only
+desktop/DasCode-Canary-<version>-x64.zip.blockmap          # Canary only
+desktop/canary-mac.yml                                     # Canary only
 npm/<package>.tgz
 web/vercel-prebuilt.tgz
 ```
 
 `SHA256SUMS` contains lowercase SHA-256 entries for `release-manifest.json` and every payload (but not
-for itself), using two spaces before the relative path. The JSON manifest uses schema version 1:
+for itself), using two spaces before the relative path. The JSON manifest uses schema version 2:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "requestId": "dcr-<controller-run>-<attempt>-<channel>-<short-sha>",
   "channel": "canary",
   "source": {
@@ -78,11 +88,26 @@ for itself), using two spaces before the relative path. The JSON manifest uses s
 }
 ```
 
-Every payload has `path`, `sha256`, positive byte `size`, `mediaType`, and one role from
-`desktop-installer`, `desktop-updater-manifest`, `desktop-blockmap`, `npm-package`, or
-`web-prebuilt`. The installer also has base64 `sha512`. The controller independently parses the
-channel updater YAML and requires its version, filename/URL, size, and both SHA-512 fields to match
-the single installer and its actual bytes.
+Every payload has `path`, `sha256`, positive byte `size`, `mediaType`, and exactly one recognized
+role. The common roles are `desktop-installer`, `desktop-updater-manifest`, `desktop-blockmap`,
+`npm-package`, and `web-prebuilt`. Canary also has exactly two `desktop-macos-dmg`, two
+`desktop-macos-zip`, four `desktop-macos-blockmap`, and one
+`desktop-macos-updater-manifest` entries. Stable and Nightly must have none of those macOS roles.
+The Windows installer and each macOS DMG/ZIP also have base64 `sha512`.
+
+The controller independently parses the Windows channel updater YAML and requires its version,
+filename/URL, size, and both SHA-512 fields to match the single installer and its actual bytes. For
+Canary it also parses `canary-mac.yml`. That merged manifest must contain `version`, `files`, and a
+valid `releaseDate`, omit top-level `path` and `sha512`, and contain exactly these entries in order:
+arm64 ZIP, arm64 DMG, x64 ZIP, x64 DMG. Every URL, size, and SHA-512 must match its manifest payload
+and actual bytes. Each DMG and ZIP has one exact adjacent `.blockmap`; case-colliding or additional
+files are rejected.
+
+The GitHub publisher uploads installers first, then blockmaps, then `SHA256SUMS` and the JSON
+manifest, and updater YAML files last. This prevents an updater manifest from becoming visible before
+all of the payloads it names have been uploaded to the draft. The current Canary macOS artifacts are
+unsigned and unnotarized; users must explicitly approve their first launch. Apple signing is a
+separate future release-policy change, not an implicit property of this contract.
 
 The npm archive must contain a regular `package/package.json` for `@das-org/dascode`, the exact
 release version, no `scripts`, no registry override, and this exact repository metadata. The only
@@ -96,6 +121,11 @@ allowed `publishConfig` is exactly `{ "access": "public" }`:
   }
 }
 ```
+
+Every npm archive must contain the non-empty Windows x64 resource monitor. Canary additionally
+requires non-empty, owner-executable `darwin-arm64` and `darwin-x64` monitors, with no extra monitor
+paths. The controller verifies this inventory and the Unix mode both before and after canonical npm
+repacking.
 
 In a separate job with OIDC explicitly disabled, the controller safely extracts this archive without
 links, special files, traversal, or `.npmrc`, repacks it with the integrity-locked npm CLI, and
