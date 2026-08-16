@@ -452,11 +452,21 @@ jobs:
           verify_release_marker() {
             local origin="$1"
             local label="$2"
+            local access="$3"
             local marker
+            local marker_path
             for attempt in $(seq 1 20); do
-              if marker="$(curl --fail --silent --show-error --max-time 10 --max-filesize 4096 \
-                --header 'Cache-Control: no-cache' \
-                "${origin%/}/__dascode/release.json?verify=${RELEASE_SOURCE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}")" && \
+              marker_path="/__dascode/release.json?verify=${RELEASE_SOURCE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}"
+              if [[ "$access" == protected ]]; then
+                marker="$(./node_modules/.bin/vercel --cwd "$deploy_root" --token "$VERCEL_TOKEN" \
+                  curl "$marker_path" --deployment "$origin" --yes -- \
+                  --fail --silent --show-error --max-time 10 --max-filesize 4096 \
+                  --header 'Cache-Control: no-cache')" || marker=""
+              else
+                marker="$(curl --fail --silent --show-error --max-time 10 --max-filesize 4096 \
+                  --header 'Cache-Control: no-cache' "${origin%/}${marker_path}")" || marker=""
+              fi
+              if [[ -n "$marker" ]] && \
                 MARKER="$marker" node -e 'const m=JSON.parse(process.env.MARKER);if(m.schemaVersion!==1||m.channel!==process.env.RELEASE_CHANNEL||m.version!==process.env.RELEASE_VERSION||m.sourceSha!==process.env.RELEASE_SOURCE_SHA)process.exit(1)'; then
                 return 0
               fi
@@ -466,11 +476,11 @@ jobs:
             return 1
           }
 
-          verify_release_marker "$deployment_url" "Raw Vercel deployment"
+          verify_release_marker "$deployment_url" "Raw Vercel deployment" protected
           domain="${{ steps.bundle.outputs.hosted_domain }}"
           node scripts/assign-vercel-alias.mjs --deployment-url "$deployment_url" --domain "$domain" --channel "$RELEASE_CHANNEL"
-          verify_release_marker "https://$domain" "Aliased deployment"
+          verify_release_marker "https://$domain" "Aliased deployment" public
           if [[ "$RELEASE_CHANNEL" == stable ]]; then
             node scripts/assign-vercel-alias.mjs --deployment-url "$deployment_url" --domain "code.bclouder.dev" --channel "$RELEASE_CHANNEL"
-            verify_release_marker "https://code.bclouder.dev" "Stable router alias"
+            verify_release_marker "https://code.bclouder.dev" "Stable router alias" public
           fi
