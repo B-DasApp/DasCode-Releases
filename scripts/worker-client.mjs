@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, createWriteStream, renameSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
+import { pathToFileURL } from "node:url";
 import {
   SOURCE_REPOSITORY,
   SOURCE_REPOSITORY_ID,
@@ -14,6 +15,8 @@ import {
 
 const apiRoot = "https://api.github.com";
 const apiVersion = "2026-03-10";
+export const WORKER_RUN_TITLE_SETTLEMENT_MS = 60_000;
+const preActiveRunStatuses = new Set(["queued", "pending", "requested", "waiting"]);
 
 function options(argv) {
   const values = new Map();
@@ -62,7 +65,7 @@ function shortRef(fullRef) {
   throw new Error("Unsupported source ref namespace.");
 }
 
-function validateRun(run, expected) {
+function validateStaticRunIdentity(run, expected) {
   invariant(String(run.id) === String(expected.runId), "Worker run ID mismatch.");
   invariant(String(run.workflow_id) === WORKER_WORKFLOW_ID, "Worker workflow ID mismatch.");
   invariant(run.event === "workflow_dispatch", "Worker run event mismatch.");
@@ -73,7 +76,6 @@ function validateRun(run, expected) {
   invariant(String(run.repository?.id) === SOURCE_REPOSITORY_ID, "Worker repository ID mismatch.");
   invariant(run.head_repository?.full_name === SOURCE_REPOSITORY, "Worker head repository mismatch.");
   invariant(run.repository?.full_name === SOURCE_REPOSITORY, "Worker repository mismatch.");
-  invariant(run.display_title === expected.title, "Worker run request identity mismatch.");
   invariant(run.run_attempt === 1, "A release worker run must be a first attempt, never a rerun.");
   const references = run.referenced_workflows ?? [];
   invariant(references.length === 1, "Worker run must reference exactly one reusable implementation workflow.");
@@ -84,6 +86,19 @@ function validateRun(run, expected) {
   );
   invariant(implementation.sha === WORKER_CONTROL_SHA, "Worker reusable implementation SHA mismatch.");
   invariant(implementation.ref === WORKER_CONTROL_REF, "Worker reusable implementation ref mismatch.");
+}
+
+export function validateRun(run, expected) {
+  validateStaticRunIdentity(run, expected);
+  invariant(run.display_title === expected.title, "Worker run request identity mismatch.");
+  return true;
+}
+
+export function validatePolledRun(run, expected, { now, titleSettlementDeadline }) {
+  validateStaticRunIdentity(run, expected);
+  if (run.display_title === expected.title) return true;
+  if (now < titleSettlementDeadline && preActiveRunStatuses.has(run.status)) return false;
+  throw new Error("Worker run request identity mismatch.");
 }
 
 async function sleep(milliseconds) {
@@ -198,11 +213,23 @@ async function waitForRun(token, args) {
     title: `release-worker / ${required(args, "channel")} / ${required(args, "request-id")}`,
   };
   const timeoutAt = Date.now() + Number(args.get("timeout-seconds") ?? "2700") * 1000;
+  const titleSettlementDeadline = Math.min(
+    timeoutAt,
+    Date.now() + WORKER_RUN_TITLE_SETTLEMENT_MS,
+  );
   let run;
   while (Date.now() < timeoutAt) {
     const response = await request(token, `/repos/${SOURCE_REPOSITORY}/actions/runs/${runId}`);
     run = await response.json();
-    validateRun(run, expected);
+    const titleSettled = validatePolledRun(run, expected, {
+      now: Date.now(),
+      titleSettlementDeadline,
+    });
+    if (!titleSettled) {
+      process.stdout.write("Worker run title is still settling before execution; retrying the bounded identity check.\n");
+      await sleep(15_000);
+      continue;
+    }
     if (run.status === "completed") {
       invariant(run.conclusion === "success", `Private worker ended with ${run.conclusion ?? "no conclusion"}; logs were not retrieved.`);
       appendFileSync(required(args, "github-output"), "complete=true\nworker_run_attempt=1\n", "utf8");
@@ -281,7 +308,9 @@ async function main() {
   else throw new Error(`Unsupported command: ${command}.`);
 }
 
-main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
+}
