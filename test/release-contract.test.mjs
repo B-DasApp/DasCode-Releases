@@ -10,7 +10,6 @@ import {
   releaseAssetNames,
   releaseAssetPaths,
   resolveReleaseVersion,
-  validateMacUpdaterMetadata,
   validateManifest,
   validateNpmMetadata,
   validateWebConfig,
@@ -20,13 +19,6 @@ const sourceSha = "a".repeat(40);
 const markerSha = "b".repeat(40);
 const version = "0.0.33-canary.20260816.90";
 const installerSha512 = `${"A".repeat(86)}==`;
-const macSha512 = {
-  arm64Dmg: `${"B".repeat(86)}==`,
-  arm64Zip: `${"C".repeat(86)}==`,
-  x64Dmg: `${"D".repeat(86)}==`,
-  x64Zip: `${"E".repeat(86)}==`,
-};
-
 function manifest() {
   return {
     schemaVersion: 2,
@@ -72,36 +64,10 @@ function manifest() {
       { path: "desktop/DasCode.exe.blockmap", sha256: "3".repeat(64), size: 12, mediaType: "application/octet-stream", role: "desktop-blockmap" },
       { path: "npm/dascode.tgz", sha256: "4".repeat(64), size: 13, mediaType: "application/gzip", role: "npm-package" },
       { path: "web/vercel-prebuilt.tgz", sha256: "5".repeat(64), size: 14, mediaType: "application/gzip", role: "web-prebuilt" },
-      { path: `desktop/DasCode-Canary-${version}-arm64.dmg`, sha256: "6".repeat(64), sha512: macSha512.arm64Dmg, size: 16, mediaType: "application/x-apple-diskimage", role: "desktop-macos-dmg" },
-      { path: `desktop/DasCode-Canary-${version}-arm64.zip`, sha256: "7".repeat(64), sha512: macSha512.arm64Zip, size: 17, mediaType: "application/zip", role: "desktop-macos-zip" },
-      { path: `desktop/DasCode-Canary-${version}-x64.dmg`, sha256: "8".repeat(64), sha512: macSha512.x64Dmg, size: 18, mediaType: "application/x-apple-diskimage", role: "desktop-macos-dmg" },
-      { path: `desktop/DasCode-Canary-${version}-x64.zip`, sha256: "9".repeat(64), sha512: macSha512.x64Zip, size: 19, mediaType: "application/zip", role: "desktop-macos-zip" },
-      { path: `desktop/DasCode-Canary-${version}-arm64.dmg.blockmap`, sha256: "a".repeat(64), size: 20, mediaType: "application/octet-stream", role: "desktop-macos-blockmap" },
-      { path: `desktop/DasCode-Canary-${version}-arm64.zip.blockmap`, sha256: "b".repeat(64), size: 21, mediaType: "application/octet-stream", role: "desktop-macos-blockmap" },
-      { path: `desktop/DasCode-Canary-${version}-x64.dmg.blockmap`, sha256: "c".repeat(64), size: 22, mediaType: "application/octet-stream", role: "desktop-macos-blockmap" },
-      { path: `desktop/DasCode-Canary-${version}-x64.zip.blockmap`, sha256: "d".repeat(64), size: 23, mediaType: "application/octet-stream", role: "desktop-macos-blockmap" },
-      { path: "desktop/canary-mac.yml", sha256: "e".repeat(64), size: 24, mediaType: "application/yaml", role: "desktop-macos-updater-manifest" },
+      { path: `desktop/DasCode-Canary-${version}-arm64.dmg`, sha256: "6".repeat(64), size: 16, mediaType: "application/x-apple-diskimage", role: "desktop-macos-dmg" },
+      { path: `desktop/DasCode-Canary-${version}-x64.dmg`, sha256: "8".repeat(64), size: 18, mediaType: "application/x-apple-diskimage", role: "desktop-macos-dmg" },
     ],
   };
-}
-
-function macUpdaterYaml() {
-  return `version: ${version}
-files:
-  - url: DasCode-Canary-${version}-arm64.zip
-    sha512: ${macSha512.arm64Zip}
-    size: 17
-  - url: DasCode-Canary-${version}-arm64.dmg
-    sha512: ${macSha512.arm64Dmg}
-    size: 16
-  - url: DasCode-Canary-${version}-x64.zip
-    sha512: ${macSha512.x64Zip}
-    size: 19
-  - url: DasCode-Canary-${version}-x64.dmg
-    sha512: ${macSha512.x64Dmg}
-    size: 18
-releaseDate: '2026-08-16T12:00:00Z'
-`;
 }
 
 const expected = {
@@ -138,14 +104,28 @@ test("validates the exact cross-repository manifest identity", () => {
 
   const missingMacPayload = manifest();
   missingMacPayload.files = missingMacPayload.files.filter(
-    (file) => file.path !== `desktop/DasCode-Canary-${version}-x64.zip`,
+    (file) => file.path !== `desktop/DasCode-Canary-${version}-x64.dmg`,
   );
   assert.throws(() => validateManifest(missingMacPayload, expected), /files count is invalid/);
+
+  const unexpectedMacZip = manifest();
+  const x64Dmg = unexpectedMacZip.files.find(
+    (file) => file.path === `desktop/DasCode-Canary-${version}-x64.dmg`,
+  );
+  x64Dmg.path = `desktop/DasCode-Canary-${version}-x64.zip`;
+  x64Dmg.role = "desktop-macos-zip";
+  x64Dmg.mediaType = "application/zip";
+  assert.throws(() => validateManifest(unexpectedMacZip, expected), /Unsupported release role/);
 
   const wrongMacMediaType = manifest();
   wrongMacMediaType.files.find((file) => file.role === "desktop-macos-dmg").mediaType =
     "application/octet-stream";
   assert.throws(() => validateManifest(wrongMacMediaType, expected), /macOS DMG media type/);
+
+  const updaterLinkedMacDmg = manifest();
+  updaterLinkedMacDmg.files.find((file) => file.role === "desktop-macos-dmg").sha512 =
+    `${"B".repeat(86)}==`;
+  assert.throws(() => validateManifest(updaterLinkedMacDmg, expected), /must not carry updater/);
 });
 
 test("keeps Stable and Nightly on the Windows-only desktop contract", () => {
@@ -205,39 +185,6 @@ test("parses the updater subset used for independent linkage", () => {
   assert.equal(parsed.path, "DasCode.exe");
 });
 
-test("links every merged macOS updater entry to the exact Canary payload", () => {
-  const linked = validateMacUpdaterMetadata(macUpdaterYaml(), manifest(), "/release");
-  assert.equal(linked.length, 4);
-  assert.equal(
-    linked.find(({ payload }) => payload.path.endsWith("arm64.zip")).absolutePayload,
-    `/release/desktop/DasCode-Canary-${version}-arm64.zip`,
-  );
-
-  const wrongSize = macUpdaterYaml().replace("    size: 17\n", "    size: 170\n");
-  assert.throws(
-    () => validateMacUpdaterMetadata(wrongSize, manifest(), "/release"),
-    /macOS updater size mismatch/,
-  );
-
-  const wrongOrder = macUpdaterYaml()
-    .replace(`DasCode-Canary-${version}-arm64.zip`, "SWAP")
-    .replace(`DasCode-Canary-${version}-arm64.dmg`, `DasCode-Canary-${version}-arm64.zip`)
-    .replace("SWAP", `DasCode-Canary-${version}-arm64.dmg`);
-  assert.throws(
-    () => validateMacUpdaterMetadata(wrongOrder, manifest(), "/release"),
-    /payload order or identity/,
-  );
-
-  const missingReleaseDate = macUpdaterYaml().replace(
-    "releaseDate: '2026-08-16T12:00:00Z'\n",
-    "",
-  );
-  assert.throws(
-    () => validateMacUpdaterMetadata(missingReleaseDate, manifest(), "/release"),
-    /requires releaseDate/,
-  );
-});
-
 test("SHA256SUMS includes the manifest and rejects duplicates", () => {
   const sums = parseSha256Sums(`${"a".repeat(64)}  release-manifest.json\n${"b".repeat(64)}  npm/dascode.tgz\n`);
   assert.equal(sums.size, 2);
@@ -259,23 +206,23 @@ test("maps release asset paths without forwarding array indexes as basename suff
   );
 });
 
-test("publishes the complete Canary desktop set in updater-safe deterministic order", () => {
+test("publishes the complete Canary DMG-only desktop set in deterministic order", () => {
   const names = releaseAssetNames(releaseAssetPaths("/release", manifest()));
-  assert.equal(names.length, 14);
+  assert.equal(names.length, 7);
   assert.equal(new Set(names.map((name) => name.toLowerCase())).size, names.length);
 
   const payloadIndexes = names
-    .map((name, index) => (/\.(?:exe|dmg|zip)$/u.test(name) ? index : -1))
+    .map((name, index) => (/\.(?:exe|dmg)$/u.test(name) ? index : -1))
     .filter((index) => index >= 0);
   const blockmapIndexes = names
     .map((name, index) => (name.endsWith(".blockmap") ? index : -1))
     .filter((index) => index >= 0);
   const metadataIndexes = [names.indexOf("SHA256SUMS"), names.indexOf("release-manifest.json")];
-  const updaterIndexes = [names.indexOf("canary-mac.yml"), names.indexOf("canary.yml")];
+  const updaterIndexes = [names.indexOf("canary.yml")];
   assert.ok(Math.max(...payloadIndexes) < Math.min(...blockmapIndexes));
   assert.ok(Math.max(...blockmapIndexes) < Math.min(...metadataIndexes));
   assert.ok(Math.max(...metadataIndexes) < Math.min(...updaterIndexes));
-  assert.deepEqual(names.slice(-2), ["canary-mac.yml", "canary.yml"]);
+  assert.equal(names.at(-1), "canary.yml");
 
   const unknownRole = manifest();
   unknownRole.files.find((file) => file.role === "desktop-installer").role =

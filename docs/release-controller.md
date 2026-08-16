@@ -155,11 +155,11 @@ private worker attempt is rejected. For a transient publication failure, rerun o
 in the same controller run so they reuse the verified bundle identity. The authorization job refuses
 workflow run attempts after attempt 1; do not use **Re-run all jobs**.
 
-Canary GitHub Releases publish both DMG and ZIP variants for macOS arm64 and x64, with a blockmap for
-each payload. `canary-mac.yml` is the canonical merged updater manifest and lists arm64 ZIP, arm64
-DMG, x64 ZIP, then x64 DMG. The controller verifies every entry against the payload bytes and uploads
-both updater manifests last. Stable and Nightly deliberately remain on the Windows-only artifact
-contract until their release policy is expanded separately.
+Canary GitHub Releases publish exactly one DMG for macOS arm64 and one for macOS x64. They are
+unsigned, unnotarized, manual-install previews; the contract intentionally has no macOS ZIP,
+blockmap, or updater manifest. The controller verifies both DMGs against the worker manifest and
+SHA256SUMS. Stable and Nightly deliberately remain on the Windows-only artifact contract until their
+release policy is expanded separately.
 
 Example after setup (do not run during installation):
 
