@@ -1,0 +1,9 @@
+* @valascus
+/.github/CODEOWNERS @valascus
+/.github/workflows/ @valascus
+/scripts/ @valascus
+/test/ @valascus
+/tests/ @valascus
+/docs/ @valascus
+/package.json @valascus
+/package-lock.json @valascus

@@ -1,0 +1,47 @@
+name: Controller validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - dascode/public-release-controller
+
+permissions:
+  contents: read
+  id-token: none
+
+jobs:
+  validate:
+    name: Validate protected controller
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.18.0
+          cache: npm
+      - name: Install the exact controller toolchain without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit
+      - name: Reject an inconsistent dependency tree
+        run: npm ls --all
+      - name: Reject critical dependency advisories
+        run: npm audit --audit-level=critical
+      - name: Run static policy checks
+        run: npm run check
+      - name: Lint GitHub Actions workflows with a checksum-pinned binary
+        env:
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            --output "$RUNNER_TEMP/actionlint.tar.gz" \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          printf '%s  %s\n' "$ACTIONLINT_SHA256" "$RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" .github/workflows/*.yml
+      - name: Run controller tests
+        run: npm test
