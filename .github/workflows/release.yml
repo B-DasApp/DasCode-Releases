@@ -434,7 +434,6 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          VERCEL_TEAM_SLUG: ${{ vars.VERCEL_TEAM_SLUG }}
           RELEASE_CHANNEL: ${{ needs.authorize.outputs.channel }}
           RELEASE_VERSION: ${{ needs.authorize.outputs.version }}
           RELEASE_SOURCE_SHA: ${{ needs.authorize.outputs.source_sha }}
@@ -442,12 +441,12 @@ jobs:
           set -euo pipefail
           deploy_root="$RUNNER_TEMP/vercel-deploy"
           python3 scripts/safe-extract-tar.py "$RUNNER_TEMP/release-bundle/${{ steps.bundle.outputs.web_path }}" "$deploy_root"
+          # Vercel validates the configured monorepo root even though --prebuilt uploads only .vercel/output.
+          mkdir -p "$deploy_root/apps/web"
           mkdir -p "$deploy_root/.vercel"
           DEPLOY_ROOT="$deploy_root" node -e 'const fs=require("fs"),p=process.env.DEPLOY_ROOT+"/.vercel/project.json";fs.writeFileSync(p,JSON.stringify({orgId:process.env.VERCEL_ORG_ID,projectId:process.env.VERCEL_PROJECT_ID})+"\n",{mode:0o600})'
-          scope_args=()
-          if [[ -n "${VERCEL_TEAM_SLUG:-}" ]]; then scope_args=(--scope "$VERCEL_TEAM_SLUG"); fi
           export NO_COLOR=1 NPM_CONFIG_IGNORE_SCRIPTS=true
-          deployment_url="$(./node_modules/.bin/vercel deploy "$deploy_root" --prebuilt --prod --skip-domain --archive=tgz --yes --token "$VERCEL_TOKEN" "${scope_args[@]}" | tail -n 1)"
+          deployment_url="$(./node_modules/.bin/vercel deploy "$deploy_root" --prebuilt --prod --skip-domain --archive=tgz --yes --token "$VERCEL_TOKEN" | tail -n 1)"
           [[ "$deployment_url" =~ ^https://[A-Za-z0-9-]+\.vercel\.app$ ]]
 
           verify_release_marker() {
@@ -469,9 +468,9 @@ jobs:
 
           verify_release_marker "$deployment_url" "Raw Vercel deployment"
           domain="${{ steps.bundle.outputs.hosted_domain }}"
-          ./node_modules/.bin/vercel alias set "$deployment_url" "$domain" --token "$VERCEL_TOKEN" "${scope_args[@]}"
+          node scripts/assign-vercel-alias.mjs --deployment-url "$deployment_url" --domain "$domain" --channel "$RELEASE_CHANNEL"
           verify_release_marker "https://$domain" "Aliased deployment"
           if [[ "$RELEASE_CHANNEL" == stable ]]; then
-            ./node_modules/.bin/vercel alias set "$deployment_url" "code.bclouder.dev" --token "$VERCEL_TOKEN" "${scope_args[@]}"
+            node scripts/assign-vercel-alias.mjs --deployment-url "$deployment_url" --domain "code.bclouder.dev" --channel "$RELEASE_CHANNEL"
             verify_release_marker "https://code.bclouder.dev" "Stable router alias"
           fi

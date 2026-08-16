@@ -63,8 +63,8 @@ Before merging this workflow to public `main`:
    **Contents: read**. It needs no administration, issues, pull requests, environments, packages, or
    release-repository access.
 6. Create the `production` environment with the same exact-main restriction and a required reviewer.
-   Add `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`; optionally add variable
-   `VERCEL_TEAM_SLUG`.
+   Add `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`. The token must have access to that
+   exact linked project; do not add a CLI scope override.
 7. Create a second GitHub App installed only on public `B-DasApp/DasCode-Releases`, with
    **Contents: read/write** and no other writable repository permission. Add its
    `RELEASE_PUBLISHER_APP_ID` and `RELEASE_PUBLISHER_PRIVATE_KEY` to `production`, then select this App
@@ -166,3 +166,12 @@ The controller verifies the raw Vercel deployment's exact `__dascode/release.jso
 moving any alias. For Stable, it then attaches `latest.code.bclouder.dev` and the router
 `code.bclouder.dev`; Nightly and Canary update only their direct origins. Every alias must serve the
 same exact identity over valid HTTPS before the job succeeds.
+
+The linked Vercel project uses the monorepo root `apps/web`. For a prebuilt deployment Vercel still
+validates that configured directory, so the controller creates only an empty compatibility path at
+that location. The validated Build Output remains at repository-root `.vercel/output`, and only that
+static tree is uploaded. The exact org/project link supplies authority without a `--scope` user
+lookup. Alias assignment uses Vercel's team-scoped REST API only after reloading the generated
+deployment and proving its exact hostname, deployment ID, owner, project, production target, and
+ready state. The controller then confirms that the requested channel domain is a non-redirect alias
+on that deployment before making the final HTTPS identity check.
