@@ -28,6 +28,8 @@ def main() -> None:
         "retention-days: 30",
         '--controller-workflow-ref "$GITHUB_WORKFLOW_REF"',
         "npm ci --ignore-scripts --no-audit",
+        'mkdir -p "$deploy_root/apps/web"',
+        "node scripts/assign-vercel-alias.mjs",
         'verify_release_marker "$deployment_url"',
     )
     for marker in required:
@@ -46,6 +48,7 @@ def main() -> None:
 
     prepare_npm = text.split("  prepare-npm:\n", 1)[1].split("  publish-npm:\n", 1)[0]
     publish_npm = text.split("  publish-npm:\n", 1)[1].split("  publish-github:\n", 1)[0]
+    publish_web = text.split("  publish-web:\n", 1)[1]
     if "id-token: none" not in prepare_npm or "environment: production" in prepare_npm:
         raise SystemExit("npm canonicalization must remain outside the production/OIDC boundary")
     if "id-token: write" not in publish_npm or "environment: production" not in publish_npm:
@@ -53,6 +56,9 @@ def main() -> None:
     for forbidden in ("validate-bundle.mjs", "prepare-npm-publication.mjs", "npm ci"):
         if forbidden in publish_npm:
             raise SystemExit(f"OIDC publication job contains forbidden preparation step: {forbidden}")
+    for forbidden in ("VERCEL_TEAM_SLUG", "--scope", "vercel alias"):
+        if forbidden in publish_web:
+            raise SystemExit(f"Vercel publication must use the exact linked org/project without {forbidden}")
     if "target_commitish" in publisher_text:
         raise SystemExit("GitHub release metadata must not replace exact Git ref verification")
     control_sha = re.search(r'WORKER_CONTROL_SHA = "([0-9a-f]{40})"', contract_text)
