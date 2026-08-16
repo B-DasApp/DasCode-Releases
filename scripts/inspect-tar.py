@@ -39,6 +39,7 @@ def inspect(mode: str, archive_path: Path) -> object:
     total = 0
     selected: tarfile.TarInfo | None = None
     release_marker: tarfile.TarInfo | None = None
+    resource_monitors: dict[str, dict[str, int]] = {}
     with tarfile.open(archive_path, mode="r:gz") as archive:
         members = archive.getmembers()
         if not members or len(members) > MAX_ENTRIES:
@@ -62,6 +63,8 @@ def inspect(mode: str, archive_path: Path) -> object:
                     if selected is not None:
                         raise ValueError("npm archive has duplicate metadata")
                     selected = member
+                if member.isfile() and name.startswith("package/dist/resource-monitor/"):
+                    resource_monitors[name] = {"mode": member.mode, "size": member.size}
             else:
                 allowed = (
                     name in (".vercel", ".vercel/output", ".vercel/output/config.json", ".vercel/output/static")
@@ -86,7 +89,10 @@ def inspect(mode: str, archive_path: Path) -> object:
             if release_marker is None:
                 raise ValueError("web archive is missing the release identity marker")
             return {"config": metadata, "release": json.loads(read_member(archive, release_marker))}
-        return metadata
+        return {
+            "packageJson": metadata,
+            "resourceMonitors": dict(sorted(resource_monitors.items())),
+        }
 
 
 def main() -> None:

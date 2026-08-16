@@ -44,11 +44,9 @@ async function main() {
   });
   const npmPath = filesForRoles(manifest, ["npm-package"])[0];
   const webPath = filesForRoles(manifest, ["web-prebuilt"])[0];
-  const desktopPaths = filesForRoles(manifest, [
-    "desktop-installer",
-    "desktop-updater-manifest",
-    "desktop-blockmap",
-  ]);
+  const desktopPaths = manifest.files
+    .filter((file) => file.role.startsWith("desktop-"))
+    .map((file) => file.path);
   const outputPath = args.get("github-output");
   if (outputPath) {
     const outputs = {
