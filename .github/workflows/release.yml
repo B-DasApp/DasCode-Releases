@@ -1,0 +1,477 @@
+name: Release controller
+run-name: release-controller / ${{ inputs.channel }} / ${{ inputs.source_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel
+        required: true
+        type: choice
+        options:
+          - stable
+          - nightly
+          - canary
+      source_ref:
+        description: Full private-source ref (refs/heads/... or refs/tags/...)
+        required: true
+        type: string
+      source_sha:
+        description: Exact lowercase 40-character private-source commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: none
+
+concurrency:
+  group: release-controller-${{ inputs.channel }}
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Authorize immutable request
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      request_id: ${{ steps.request.outputs.request_id }}
+      channel: ${{ steps.request.outputs.channel }}
+      source_ref: ${{ steps.request.outputs.source_ref }}
+      source_sha: ${{ steps.request.outputs.source_sha }}
+      version: ${{ steps.request.outputs.version }}
+      tag: ${{ steps.request.outputs.tag }}
+      npm_dist_tag: ${{ steps.request.outputs.npm_dist_tag }}
+      controller_run_attempt: ${{ steps.request.outputs.controller_run_attempt }}
+    steps:
+      - name: Checkout protected public controller only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: request
+        name: Validate controller and source request
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          INPUT_SOURCE_REF: ${{ inputs.source_ref }}
+          INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          node scripts/validate-request.mjs \
+            --controller-repository "$GITHUB_REPOSITORY" \
+            --controller-repository-id "$GITHUB_REPOSITORY_ID" \
+            --controller-ref "$GITHUB_REF" \
+            --controller-ref-protected "$GITHUB_REF_PROTECTED" \
+            --controller-sha "$GITHUB_SHA" \
+            --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" \
+            --controller-workflow-ref "$GITHUB_WORKFLOW_REF" \
+            --controller-run-id "$GITHUB_RUN_ID" \
+            --controller-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --controller-run-number "$GITHUB_RUN_NUMBER" \
+            --event "$GITHUB_EVENT_NAME" \
+            --default-branch "${{ github.event.repository.default_branch }}" \
+            --channel "$INPUT_CHANNEL" \
+            --source-ref "$INPUT_SOURCE_REF" \
+            --source-sha "$INPUT_SOURCE_SHA" \
+            --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --github-output "$GITHUB_OUTPUT"
+
+  acquire:
+    name: Acquire verified private build
+    needs: authorize
+    if: needs.authorize.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 235
+    environment: source-reader
+    outputs:
+      worker_run_id: ${{ steps.dispatch.outputs.worker_run_id }}
+      worker_run_attempt: ${{ steps.download.outputs.worker_run_attempt }}
+      canary_marker_sha: ${{ steps.dispatch.outputs.canary_marker_sha }}
+      bundle_name: verified-release-bundle-${{ needs.authorize.outputs.request_id }}
+      controller_run_attempt: ${{ needs.authorize.outputs.controller_run_attempt }}
+    env:
+      DASCODE_RELAY_URL: ${{ vars.DASCODE_RELAY_URL }}
+      CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+      CLERK_JWT_TEMPLATE: ${{ vars.CLERK_JWT_TEMPLATE }}
+      CLERK_CLI_OAUTH_CLIENT_ID: ${{ vars.CLERK_CLI_OAUTH_CLIENT_ID }}
+      T3CODE_POSTHOG_KEY: ${{ vars.T3CODE_POSTHOG_KEY }}
+      T3CODE_POSTHOG_HOST: ${{ vars.T3CODE_POSTHOG_HOST }}
+      T3CODE_RELAY_CLIENT_OTLP_TRACES_URL: ${{ vars.T3CODE_RELAY_CLIENT_OTLP_TRACES_URL }}
+      T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET: ${{ vars.T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET }}
+      T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN: ${{ vars.T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN }}
+      DASCODE_WEB_ROUTER_URL: https://code.bclouder.dev
+      DASCODE_WEB_LATEST_DOMAIN: latest.code.bclouder.dev
+      DASCODE_WEB_NIGHTLY_DOMAIN: nightly.code.bclouder.dev
+      DASCODE_WEB_CANARY_DOMAIN: canary.code.bclouder.dev
+    steps:
+      - name: Refuse a rerun of the acquisition boundary
+        env:
+          AUTHORIZED_RUN_ATTEMPT: ${{ needs.authorize.outputs.controller_run_attempt }}
+        run: |
+          if [[ "$GITHUB_RUN_ATTEMPT" != "$AUTHORIZED_RUN_ATTEMPT" ]]; then
+            echo "Do not rerun acquisition; rerun only failed publication jobs or start a new request." >&2
+            exit 1
+          fi
+
+      - name: Checkout protected public controller only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - id: dispatch-token
+        name: Mint bounded source-reader token for dispatch
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.SOURCE_READER_APP_ID }}
+          private-key: ${{ secrets.SOURCE_READER_PRIVATE_KEY }}
+          owner: B-DasApp
+          repositories: DasCode
+          permission-actions: write
+          permission-contents: read
+
+      - id: dispatch
+        name: Verify source identity and dispatch exact worker
+        env:
+          SOURCE_READER_TOKEN: ${{ steps.dispatch-token.outputs.token }}
+        run: |
+          node scripts/worker-client.mjs \
+            --command dispatch --token-env SOURCE_READER_TOKEN \
+            --channel "${{ needs.authorize.outputs.channel }}" \
+            --source-ref "${{ needs.authorize.outputs.source_ref }}" \
+            --source-sha "${{ needs.authorize.outputs.source_sha }}" \
+            --version "${{ needs.authorize.outputs.version }}" \
+            --request-id "${{ needs.authorize.outputs.request_id }}" \
+            --controller-repository "$GITHUB_REPOSITORY" \
+            --controller-run-id "$GITHUB_RUN_ID" \
+            --controller-run-attempt "${{ needs.authorize.outputs.controller_run_attempt }}" \
+            --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" \
+            --relay-url "$DASCODE_RELAY_URL" \
+            --clerk-publishable-key "$CLERK_PUBLISHABLE_KEY" \
+            --clerk-jwt-template "$CLERK_JWT_TEMPLATE" \
+            --clerk-cli-oauth-client-id "$CLERK_CLI_OAUTH_CLIENT_ID" \
+            --posthog-key "$T3CODE_POSTHOG_KEY" --posthog-host "$T3CODE_POSTHOG_HOST" \
+            --relay-client-otlp-traces-url "$T3CODE_RELAY_CLIENT_OTLP_TRACES_URL" \
+            --relay-client-otlp-traces-dataset "$T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET" \
+            --relay-client-otlp-traces-token "$T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN" \
+            --hosted-router-url "$DASCODE_WEB_ROUTER_URL" \
+            --hosted-latest-domain "$DASCODE_WEB_LATEST_DOMAIN" \
+            --hosted-nightly-domain "$DASCODE_WEB_NIGHTLY_DOMAIN" \
+            --hosted-canary-domain "$DASCODE_WEB_CANARY_DOMAIN" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - id: wait-token-1
+        name: Mint source-reader token for wait phase 1
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with: &source-reader-read-token
+          app-id: ${{ secrets.SOURCE_READER_APP_ID }}
+          private-key: ${{ secrets.SOURCE_READER_PRIVATE_KEY }}
+          owner: B-DasApp
+          repositories: DasCode
+          permission-actions: read
+
+      - id: wait-1
+        name: Wait for private worker (phase 1)
+        env:
+          SOURCE_READER_TOKEN: ${{ steps.wait-token-1.outputs.token }}
+        run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
+
+      - id: wait-token-2
+        if: steps.wait-1.outputs.complete != 'true'
+        name: Mint source-reader token for wait phase 2
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with: *source-reader-read-token
+
+      - id: wait-2
+        if: steps.wait-1.outputs.complete != 'true'
+        name: Wait for private worker (phase 2)
+        env:
+          SOURCE_READER_TOKEN: ${{ steps.wait-token-2.outputs.token }}
+        run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
+
+      - id: wait-token-3
+        if: steps.wait-1.outputs.complete != 'true' && steps.wait-2.outputs.complete != 'true'
+        name: Mint source-reader token for wait phase 3
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with: *source-reader-read-token
+
+      - id: wait-3
+        if: steps.wait-1.outputs.complete != 'true' && steps.wait-2.outputs.complete != 'true'
+        name: Wait for private worker (phase 3)
+        env:
+          SOURCE_READER_TOKEN: ${{ steps.wait-token-3.outputs.token }}
+        run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
+
+      - id: wait-token-4
+        if: steps.wait-1.outputs.complete != 'true' && steps.wait-2.outputs.complete != 'true' && steps.wait-3.outputs.complete != 'true'
+        name: Mint source-reader token for wait phase 4
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with: *source-reader-read-token
+
+      - id: wait-4
+        if: steps.wait-1.outputs.complete != 'true' && steps.wait-2.outputs.complete != 'true' && steps.wait-3.outputs.complete != 'true'
+        name: Wait for private worker (phase 4)
+        env:
+          SOURCE_READER_TOKEN: ${{ steps.wait-token-4.outputs.token }}
+        run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
+
+      - name: Require completed worker
+        env:
+          COMPLETE_1: ${{ steps.wait-1.outputs.complete }}
+          COMPLETE_2: ${{ steps.wait-2.outputs.complete }}
+          COMPLETE_3: ${{ steps.wait-3.outputs.complete }}
+          COMPLETE_4: ${{ steps.wait-4.outputs.complete }}
+        run: test "$COMPLETE_1" = true || test "$COMPLETE_2" = true || test "$COMPLETE_3" = true || test "$COMPLETE_4" = true
+
+      - id: download-token
+        name: Mint fresh source-reader token for artifact transfer
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with: *source-reader-read-token
+
+      - id: download
+        name: Download exact private artifact by ID and REST digest
+        env:
+          SOURCE_READER_TOKEN: ${{ steps.download-token.outputs.token }}
+        run: node scripts/worker-client.mjs --command download --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --output "$RUNNER_TEMP/release-bundle.zip" --github-output "$GITHUB_OUTPUT"
+
+      - name: Safely extract Actions artifact
+        run: python3 scripts/safe-extract-zip.py "$RUNNER_TEMP/release-bundle.zip" "$RUNNER_TEMP/release-bundle"
+
+      - name: Verify manifest, checksums, updater, npm and static web payload
+        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.authorize.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --canary-marker-sha "${{ steps.dispatch.outputs.canary_marker_sha }}"
+
+      - name: Upload only the verified publication bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: verified-release-bundle-${{ needs.authorize.outputs.request_id }}
+          path: ${{ runner.temp }}/release-bundle
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  prepare-npm:
+    name: Canonicalize npm package without credentials
+    needs: [authorize, acquire]
+    if: needs.acquire.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      artifact_name: ${{ steps.canonical.outputs.artifact_name }}
+      sha512: ${{ steps.canonical.outputs.sha512 }}
+    permissions:
+      contents: read
+      id-token: none
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.acquire.outputs.bundle_name }}
+          path: ${{ runner.temp }}/release-bundle
+      - id: bundle
+        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --canary-marker-sha "${{ needs.acquire.outputs.canary_marker_sha }}" --github-output "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.18.0
+      - id: npm-package
+        name: Safely repack and revalidate npm-owned publication bytes
+        run: node scripts/prepare-npm-publication.mjs --archive "$RUNNER_TEMP/release-bundle/${{ steps.bundle.outputs.npm_path }}" --version "${{ steps.bundle.outputs.version }}" --output-dir "$RUNNER_TEMP/npm-publication" --github-output "$GITHUB_OUTPUT"
+      - id: canonical
+        name: Freeze canonical npm bytes and identity
+        env:
+          CANONICAL_SOURCE: ${{ steps.npm-package.outputs.path }}
+          REQUEST_ID: ${{ needs.authorize.outputs.request_id }}
+        run: |
+          set -euo pipefail
+          install -D -m 0644 "$CANONICAL_SOURCE" "$RUNNER_TEMP/canonical-npm/dascode.tgz"
+          sha512="$(sha512sum "$RUNNER_TEMP/canonical-npm/dascode.tgz" | cut -d ' ' -f 1)"
+          [[ "$sha512" =~ ^[0-9a-f]{128}$ ]]
+          printf 'artifact_name=canonical-npm-%s\n' "$REQUEST_ID" >> "$GITHUB_OUTPUT"
+          printf 'sha512=%s\n' "$sha512" >> "$GITHUB_OUTPUT"
+      - name: Upload only the frozen canonical npm package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: canonical-npm-${{ needs.authorize.outputs.request_id }}
+          path: ${{ runner.temp }}/canonical-npm/dascode.tgz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  publish-npm:
+    name: Publish frozen npm package
+    needs: [authorize, acquire, prepare-npm]
+    if: needs.acquire.result == 'success' && needs.prepare-npm.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.prepare-npm.outputs.artifact_name }}
+          path: ${{ runner.temp }}/canonical-npm
+      - name: Verify frozen npm bytes before granting them to npm
+        env:
+          EXPECTED_SHA512: ${{ needs.prepare-npm.outputs.sha512 }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA512" =~ ^[0-9a-f]{128}$ ]]
+          actual_sha512="$(sha512sum "$RUNNER_TEMP/canonical-npm/dascode.tgz" | cut -d ' ' -f 1)"
+          [[ "$actual_sha512" == "$EXPECTED_SHA512" ]]
+          : > "$RUNNER_TEMP/canonical-npm/user.npmrc"
+          : > "$RUNNER_TEMP/canonical-npm/global.npmrc"
+          chmod 0600 "$RUNNER_TEMP/canonical-npm/user.npmrc" "$RUNNER_TEMP/canonical-npm/global.npmrc"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.18.0
+      - name: Require the trusted-publishing npm bundled with pinned Node
+        working-directory: ${{ runner.temp }}/canonical-npm
+        run: test "$(npm --version)" = 11.16.0
+      - id: registry
+        name: Check for an idempotent existing publication
+        working-directory: ${{ runner.temp }}/canonical-npm
+        run: node "$GITHUB_WORKSPACE/scripts/verify-npm-publication.mjs" --phase before --tarball "$RUNNER_TEMP/canonical-npm/dascode.tgz" --version "${{ needs.authorize.outputs.version }}" --dist-tag "${{ needs.authorize.outputs.npm_dist_tag }}" --github-output "$GITHUB_OUTPUT"
+      - if: steps.registry.outputs.should_publish == 'true'
+        name: Publish through npm trusted publishing
+        working-directory: ${{ runner.temp }}/canonical-npm
+        env:
+          NPM_CONFIG_IGNORE_SCRIPTS: "true"
+          NPM_CONFIG_PROVENANCE: "true"
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/canonical-npm/user.npmrc
+          NPM_CONFIG_GLOBALCONFIG: ${{ runner.temp }}/canonical-npm/global.npmrc
+        run: npm publish "$RUNNER_TEMP/canonical-npm/dascode.tgz" --registry https://registry.npmjs.org --access public --tag "${{ needs.authorize.outputs.npm_dist_tag }}" --provenance --ignore-scripts
+      - name: Verify registry integrity and dist-tag
+        working-directory: ${{ runner.temp }}/canonical-npm
+        run: node "$GITHUB_WORKSPACE/scripts/verify-npm-publication.mjs" --phase after --tarball "$RUNNER_TEMP/canonical-npm/dascode.tgz" --version "${{ needs.authorize.outputs.version }}" --dist-tag "${{ needs.authorize.outputs.npm_dist_tag }}"
+
+  publish-github:
+    name: Publish public desktop release
+    needs: [authorize, acquire, publish-npm]
+    if: needs.acquire.result == 'success' && needs.publish-npm.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      contents: read
+      id-token: none
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.acquire.outputs.bundle_name }}
+          path: ${{ runner.temp }}/release-bundle
+      - id: bundle
+        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --canary-marker-sha "${{ needs.acquire.outputs.canary_marker_sha }}" --github-output "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.18.0
+      - id: npm-package
+        name: Reproduce and revalidate npm-owned publication bytes
+        run: node scripts/prepare-npm-publication.mjs --archive "$RUNNER_TEMP/release-bundle/${{ steps.bundle.outputs.npm_path }}" --version "${{ steps.bundle.outputs.version }}" --output-dir "$RUNNER_TEMP/npm-publication" --github-output "$GITHUB_OUTPUT"
+      - name: Reconfirm this run still owns the npm channel
+        run: node scripts/verify-npm-publication.mjs --phase after --tarball "${{ steps.npm-package.outputs.path }}" --version "${{ steps.bundle.outputs.version }}" --dist-tag "${{ steps.bundle.outputs.npm_dist_tag }}"
+      - id: release-token
+        name: Mint production-scoped public release token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.RELEASE_PUBLISHER_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PUBLISHER_PRIVATE_KEY }}
+          owner: B-DasApp
+          repositories: DasCode-Releases
+          permission-contents: write
+      - name: Draft, upload, verify REST digests, then publish
+        env:
+          GITHUB_TOKEN: ${{ steps.release-token.outputs.token }}
+        run: node scripts/publish-github-release.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --tag "${{ steps.bundle.outputs.tag }}" --target "$GITHUB_SHA" --prerelease "${{ steps.bundle.outputs.prerelease }}" --make-latest "${{ steps.bundle.outputs.make_latest }}"
+
+  publish-web:
+    name: Deploy prebuilt static web release
+    needs: [authorize, acquire, publish-github]
+    if: needs.acquire.result == 'success' && needs.publish-github.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      contents: read
+      id-token: none
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.acquire.outputs.bundle_name }}
+          path: ${{ runner.temp }}/release-bundle
+      - id: bundle
+        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --canary-marker-sha "${{ needs.acquire.outputs.canary_marker_sha }}" --github-output "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.18.0
+      - name: Install integrity-locked release tools without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit
+      - id: npm-package
+        name: Reproduce and revalidate npm-owned publication bytes
+        run: node scripts/prepare-npm-publication.mjs --archive "$RUNNER_TEMP/release-bundle/${{ steps.bundle.outputs.npm_path }}" --version "${{ steps.bundle.outputs.version }}" --output-dir "$RUNNER_TEMP/npm-publication" --github-output "$GITHUB_OUTPUT"
+      - name: Reconfirm this run still owns the npm channel
+        run: node scripts/verify-npm-publication.mjs --phase after --tarball "${{ steps.npm-package.outputs.path }}" --version "${{ steps.bundle.outputs.version }}" --dist-tag "${{ steps.bundle.outputs.npm_dist_tag }}"
+      - name: Deploy only the static prebuilt output and verify HTTPS identity
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TEAM_SLUG: ${{ vars.VERCEL_TEAM_SLUG }}
+          RELEASE_CHANNEL: ${{ needs.authorize.outputs.channel }}
+          RELEASE_VERSION: ${{ needs.authorize.outputs.version }}
+          RELEASE_SOURCE_SHA: ${{ needs.authorize.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          deploy_root="$RUNNER_TEMP/vercel-deploy"
+          python3 scripts/safe-extract-tar.py "$RUNNER_TEMP/release-bundle/${{ steps.bundle.outputs.web_path }}" "$deploy_root"
+          mkdir -p "$deploy_root/.vercel"
+          DEPLOY_ROOT="$deploy_root" node -e 'const fs=require("fs"),p=process.env.DEPLOY_ROOT+"/.vercel/project.json";fs.writeFileSync(p,JSON.stringify({orgId:process.env.VERCEL_ORG_ID,projectId:process.env.VERCEL_PROJECT_ID})+"\n",{mode:0o600})'
+          scope_args=()
+          if [[ -n "${VERCEL_TEAM_SLUG:-}" ]]; then scope_args=(--scope "$VERCEL_TEAM_SLUG"); fi
+          export NO_COLOR=1 NPM_CONFIG_IGNORE_SCRIPTS=true
+          deployment_url="$(./node_modules/.bin/vercel deploy "$deploy_root" --prebuilt --prod --skip-domain --archive=tgz --yes --token "$VERCEL_TOKEN" "${scope_args[@]}" | tail -n 1)"
+          [[ "$deployment_url" =~ ^https://[A-Za-z0-9-]+\.vercel\.app$ ]]
+
+          verify_release_marker() {
+            local origin="$1"
+            local label="$2"
+            local marker
+            for attempt in $(seq 1 20); do
+              if marker="$(curl --fail --silent --show-error --max-time 10 --max-filesize 4096 \
+                --header 'Cache-Control: no-cache' \
+                "${origin%/}/__dascode/release.json?verify=${RELEASE_SOURCE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}")" && \
+                MARKER="$marker" node -e 'const m=JSON.parse(process.env.MARKER);if(m.schemaVersion!==1||m.channel!==process.env.RELEASE_CHANNEL||m.version!==process.env.RELEASE_VERSION||m.sourceSha!==process.env.RELEASE_SOURCE_SHA)process.exit(1)'; then
+                return 0
+              fi
+              if [[ "$attempt" != 20 ]]; then sleep 5; fi
+            done
+            echo "$label did not serve the exact release identity over HTTPS." >&2
+            return 1
+          }
+
+          verify_release_marker "$deployment_url" "Raw Vercel deployment"
+          domain="${{ steps.bundle.outputs.hosted_domain }}"
+          ./node_modules/.bin/vercel alias set "$deployment_url" "$domain" --token "$VERCEL_TOKEN" "${scope_args[@]}"
+          verify_release_marker "https://$domain" "Aliased deployment"
+          if [[ "$RELEASE_CHANNEL" == stable ]]; then
+            ./node_modules/.bin/vercel alias set "$deployment_url" "code.bclouder.dev" --token "$VERCEL_TOKEN" "${scope_args[@]}"
+            verify_release_marker "https://code.bclouder.dev" "Stable router alias"
+          fi
