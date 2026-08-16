@@ -29,11 +29,10 @@ def main() -> None:
         '--controller-workflow-ref "$GITHUB_WORKFLOW_REF"',
         "npm ci --ignore-scripts --no-audit",
         'mkdir -p "$deploy_root/apps/web"',
+        "node scripts/verify-vercel-deployment.mjs",
         "node scripts/assign-vercel-alias.mjs",
-        'vercel --cwd "$deploy_root" --token "$VERCEL_TOKEN"',
-        'curl "$marker_path" --deployment "$origin" --yes',
-        'verify_release_marker "$deployment_url" "Raw Vercel deployment" protected',
-        'verify_release_marker "https://$domain" "Aliased deployment" public',
+        '--verification-key "${RELEASE_SOURCE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
+        'verify_release_marker "https://$domain" "Aliased deployment"',
     )
     for marker in required:
         if marker not in text:
@@ -60,16 +59,11 @@ def main() -> None:
     for forbidden in ("validate-bundle.mjs", "prepare-npm-publication.mjs", "npm ci"):
         if forbidden in publish_npm:
             raise SystemExit(f"OIDC publication job contains forbidden preparation step: {forbidden}")
-    for forbidden in ("VERCEL_TEAM_SLUG", "--scope", "vercel alias"):
+    for forbidden in ("VERCEL_TEAM_SLUG", "--scope", "vercel alias", "vercel curl"):
         if forbidden in publish_web:
             raise SystemExit(f"Vercel publication must use the exact linked org/project without {forbidden}")
-    raw_verification = publish_web.split(
-        'verify_release_marker "$deployment_url" "Raw Vercel deployment" protected', 1
-    )[0]
-    if '${origin%/}${marker_path}' not in publish_web or "[[ \"$access\" == protected ]]" not in publish_web:
-        raise SystemExit("Vercel verification must distinguish protected raw and public alias access")
-    if 'curl --fail' not in publish_web or "vercel --cwd" not in raw_verification:
-        raise SystemExit("Vercel verification must retain both authenticated raw and public HTTPS checks")
+    if '${origin%/}${marker_path}' not in publish_web or 'curl --fail' not in publish_web:
+        raise SystemExit("Vercel publication must retain an unauthenticated public-alias HTTPS check")
     if "timeout-minutes: 45" not in publish_github:
         raise SystemExit("GitHub desktop publication must allow enough time for the full macOS asset set")
     if "target_commitish" in publisher_text:

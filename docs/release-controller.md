@@ -174,9 +174,11 @@ gh workflow run release.yml \
 
 The controller verifies the raw Vercel deployment's exact `__dascode/release.json` identity before
 moving any alias. Generated deployment URLs may be covered by Vercel Deployment Protection, so this
-first check uses the authenticated CLI curl command and its automatic protection bypass. Alias
-verification deliberately uses ordinary unauthenticated HTTPS: a release cannot succeed if a user
-would encounter the protection wall. For Stable, the controller attaches
+first check verifies the deployment's exact team/project ownership through Vercel's API, reuses or
+creates an automation protection-bypass secret, and keeps that secret only in the verifier process.
+This avoids requiring the release service token to resolve a human Vercel user. Alias verification
+deliberately uses ordinary unauthenticated HTTPS: a release cannot succeed if a user would encounter
+the protection wall. For Stable, the controller attaches
 `latest.code.bclouder.dev` and the router `code.bclouder.dev`; Nightly and Canary update only their
 direct origins. Every alias must serve the same exact identity over valid HTTPS before the job
 succeeds.

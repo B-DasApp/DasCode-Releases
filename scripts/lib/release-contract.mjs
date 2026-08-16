@@ -618,14 +618,18 @@ export function validateWebConfig(config) {
   );
 }
 
+export function validateWebReleaseMarker(marker, expected) {
+  exactKeys(marker, ["schemaVersion", "channel", "version", "sourceSha"]);
+  invariant(marker.schemaVersion === 1, "Web release marker schema mismatch.");
+  invariant(marker.channel === expected.channel, "Web release marker channel mismatch.");
+  invariant(marker.version === expected.version, "Web release marker version mismatch.");
+  invariant(marker.sourceSha === expected.sourceSha, "Web release marker source SHA mismatch.");
+}
+
 export function validateWebArchive(path, expected) {
   const inspected = inspectTar("web", path);
   validateWebConfig(inspected.config);
-  exactKeys(inspected.release, ["schemaVersion", "channel", "version", "sourceSha"]);
-  invariant(inspected.release.schemaVersion === 1, "Web release marker schema mismatch.");
-  invariant(inspected.release.channel === expected.channel, "Web release marker channel mismatch.");
-  invariant(inspected.release.version === expected.version, "Web release marker version mismatch.");
-  invariant(inspected.release.sourceSha === expected.sourceSha, "Web release marker source SHA mismatch.");
+  validateWebReleaseMarker(inspected.release, expected);
 }
 
 export async function validateBundleDirectory(root, expected) {
