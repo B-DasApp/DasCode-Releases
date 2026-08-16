@@ -7,6 +7,7 @@ import {
   buildRequestId,
   parseSha256Sums,
   parseUpdaterYaml,
+  releaseAssetNames,
   resolveReleaseVersion,
   validateManifest,
   validateNpmMetadata,
@@ -120,6 +121,17 @@ test("SHA256SUMS includes the manifest and rejects duplicates", () => {
 
 test("request IDs bind run attempt, channel and source", () => {
   assert.equal(buildRequestId({ runId: "123", runAttempt: "2", channel: "canary", sourceSha }), "dcr-123-2-canary-aaaaaaaaaaaa");
+});
+
+test("maps release asset paths without forwarding array indexes as basename suffixes", () => {
+  assert.deepEqual(
+    releaseAssetNames([
+      "/release/DasCode.exe",
+      "/release/DasCode.exe.blockmap",
+      "/release/canary.yml",
+    ]),
+    ["DasCode.exe", "DasCode.exe.blockmap", "canary.yml"],
+  );
 });
 
 test("requires the exact reviewed Vercel channel router", () => {

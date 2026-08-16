@@ -143,6 +143,10 @@ export function buildRequestId({ runId, runAttempt, channel, sourceSha }) {
   return id;
 }
 
+export function releaseAssetNames(paths) {
+  return paths.map((path) => basename(path));
+}
+
 function validatePath(path) {
   invariant(safeBundlePathPattern.test(path), `Unsafe or unsupported bundle path: ${path}.`);
   invariant(!path.includes("//") && !path.includes(".."), `Unsafe bundle path: ${path}.`);

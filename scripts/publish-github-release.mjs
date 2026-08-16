@@ -2,7 +2,7 @@
 
 import { createReadStream, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { sha256File } from "./lib/release-contract.mjs";
+import { releaseAssetNames, sha256File } from "./lib/release-contract.mjs";
 
 const repository = "B-DasApp/DasCode-Releases";
 const apiRoot = "https://api.github.com";
@@ -124,7 +124,7 @@ async function main() {
     return manifest.files.find((file) => file.path === relative)?.role;
   };
   const assetPaths = unorderedAssetPaths.sort((left, right) => roleOrder.get(roleForPath(left)) - roleOrder.get(roleForPath(right)));
-  const names = assetPaths.map(basename);
+  const names = releaseAssetNames(assetPaths);
   invariant(new Set(names.map((name) => name.toLowerCase())).size === names.length, "Release asset names collide.");
   const expected = new Map();
   for (const path of assetPaths) expected.set(basename(path), { digest: `sha256:${await sha256File(path)}`, size: statSync(path).size });
