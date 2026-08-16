@@ -70,13 +70,19 @@ def main() -> None:
         raise SystemExit("GitHub release metadata must not replace exact Git ref verification")
     for marker in (
         "desktop-macos-dmg",
+        'expectedFileCount = manifest.channel === "canary" ? 7 : 5',
+        "Manual-install macOS DMGs must not carry updater SHA-512 metadata",
+    ):
+        if marker not in contract_text:
+            raise SystemExit(f"release contract is missing Canary macOS policy marker: {marker}")
+    for forbidden in (
         "desktop-macos-zip",
         "desktop-macos-blockmap",
         "desktop-macos-updater-manifest",
         "validateMacUpdaterMetadata",
     ):
-        if marker not in contract_text:
-            raise SystemExit(f"release contract is missing Canary macOS policy marker: {marker}")
+        if forbidden in contract_text:
+            raise SystemExit(f"release contract must keep Canary macOS DMG-only: {forbidden}")
     for marker in ("releaseAssetPaths", "const assetPaths = releaseAssetPaths(root, manifest)"):
         if marker not in publisher_text:
             raise SystemExit(f"GitHub publisher is missing deterministic asset-order policy: {marker}")

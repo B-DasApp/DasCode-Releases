@@ -12,7 +12,7 @@ export const WORKER_WORKFLOW_PATH = ".github/workflows/release.yml";
 export const WORKER_IMPLEMENTATION_PATH = ".github/workflows/release-worker.yml";
 export const WORKER_WORKFLOW_ID = "244380781";
 export const WORKER_CONTROL_REF = "refs/heads/dascode/release-worker-controller";
-export const WORKER_CONTROL_SHA = "5d237e478973383f7ef2fc64280a162c9675cb91";
+export const WORKER_CONTROL_SHA = "cef1927aefc6c36eccdf83846a142d2144fbb080";
 export const NPM_PACKAGE_NAME = "@das-org/dascode";
 export const NPM_REPOSITORY_URL =
   "git+https://github.com/B-DasApp/DasCode-Releases.git";
@@ -28,9 +28,6 @@ const roles = new Set([
   "desktop-updater-manifest",
   "desktop-blockmap",
   "desktop-macos-dmg",
-  "desktop-macos-zip",
-  "desktop-macos-blockmap",
-  "desktop-macos-updater-manifest",
   "npm-package",
   "web-prebuilt",
 ]);
@@ -38,12 +35,9 @@ const roles = new Set([
 const releaseAssetRoleOrder = new Map([
   ["desktop-installer", 0],
   ["desktop-macos-dmg", 0],
-  ["desktop-macos-zip", 0],
   ["desktop-blockmap", 1],
-  ["desktop-macos-blockmap", 1],
   ["release-metadata", 2],
   ["desktop-updater-manifest", 3],
-  ["desktop-macos-updater-manifest", 3],
 ]);
 
 function invariant(condition, message) {
@@ -245,7 +239,7 @@ export function validateManifest(manifest, expected) {
   const expectedDomain = `${manifest.channel === "stable" ? "latest" : manifest.channel}.code.bclouder.dev`;
   invariant(manifest.release.hostedDomain === expectedDomain, "Manifest hosted domain crosses release channels.");
 
-  const expectedFileCount = manifest.channel === "canary" ? 14 : 5;
+  const expectedFileCount = manifest.channel === "canary" ? 7 : 5;
   invariant(Array.isArray(manifest.files) && manifest.files.length === expectedFileCount, "Manifest files count is invalid.");
   const seenPaths = new Set();
   const seenCaseInsensitivePaths = new Set();
@@ -279,31 +273,7 @@ export function validateManifest(manifest, expected) {
         "macOS DMG path does not match the exact Canary version and architecture.",
       );
       invariant(file.mediaType === "application/x-apple-diskimage", "macOS DMG media type is invalid.");
-      invariant(sha512Pattern.test(file.sha512 ?? ""), "macOS DMG requires a base64 SHA-512.");
-    }
-    if (file.role === "desktop-macos-zip") {
-      invariant(
-        [`${macArtifactPrefix}arm64.zip`, `${macArtifactPrefix}x64.zip`].includes(file.path),
-        "macOS ZIP path does not match the exact Canary version and architecture.",
-      );
-      invariant(file.mediaType === "application/zip", "macOS ZIP media type is invalid.");
-      invariant(sha512Pattern.test(file.sha512 ?? ""), "macOS ZIP requires a base64 SHA-512.");
-    }
-    if (file.role === "desktop-macos-blockmap") {
-      invariant(
-        [
-          `${macArtifactPrefix}arm64.dmg.blockmap`,
-          `${macArtifactPrefix}arm64.zip.blockmap`,
-          `${macArtifactPrefix}x64.dmg.blockmap`,
-          `${macArtifactPrefix}x64.zip.blockmap`,
-        ].includes(file.path),
-        "macOS blockmap path does not match an exact Canary payload.",
-      );
-      invariant(file.mediaType === "application/octet-stream", "macOS blockmap media type is invalid.");
-    }
-    if (file.role === "desktop-macos-updater-manifest") {
-      invariant(file.path === "desktop/canary-mac.yml", "macOS updater manifest must be desktop/canary-mac.yml.");
-      invariant(file.mediaType === "application/yaml", "macOS updater manifest media type is invalid.");
+      invariant(!Object.hasOwn(file, "sha512"), "Manual-install macOS DMGs must not carry updater SHA-512 metadata.");
     }
     if (file.role === "npm-package") invariant(/^npm\/[A-Za-z0-9@._+-]+\.tgz$/u.test(file.path), "npm package path is invalid.");
     if (file.role === "web-prebuilt") invariant(file.path === "web/vercel-prebuilt.tgz", "Web prebuilt path is invalid.");
@@ -314,38 +284,14 @@ export function validateManifest(manifest, expected) {
   invariant((roleCounts.get("npm-package") ?? 0) === 1, "Bundle must have exactly one npm package.");
   invariant((roleCounts.get("web-prebuilt") ?? 0) === 1, "Bundle must have exactly one web prebuilt archive.");
   const expectedMacRoleCounts = manifest.channel === "canary"
-    ? new Map([
-        ["desktop-macos-dmg", 2],
-        ["desktop-macos-zip", 2],
-        ["desktop-macos-blockmap", 4],
-        ["desktop-macos-updater-manifest", 1],
-      ])
-    : new Map([
-        ["desktop-macos-dmg", 0],
-        ["desktop-macos-zip", 0],
-        ["desktop-macos-blockmap", 0],
-        ["desktop-macos-updater-manifest", 0],
-      ]);
+    ? new Map([["desktop-macos-dmg", 2]])
+    : new Map([["desktop-macos-dmg", 0]]);
   for (const [role, count] of expectedMacRoleCounts) {
     invariant((roleCounts.get(role) ?? 0) === count, `${manifest.channel} bundle has an invalid ${role} count.`);
   }
   const installer = manifest.files.find((file) => file.role === "desktop-installer");
   const blockmap = manifest.files.find((file) => file.role === "desktop-blockmap");
   invariant(blockmap.path === `${installer.path}.blockmap`, "Desktop blockmap does not belong to the sole installer.");
-  const macPayloadPaths = new Set(
-    manifest.files
-      .filter((file) => file.role === "desktop-macos-dmg" || file.role === "desktop-macos-zip")
-      .map((file) => `${file.path}.blockmap`),
-  );
-  const macBlockmapPaths = new Set(
-    manifest.files
-      .filter((file) => file.role === "desktop-macos-blockmap")
-      .map((file) => file.path),
-  );
-  invariant(
-    JSON.stringify([...macBlockmapPaths].sort()) === JSON.stringify([...macPayloadPaths].sort()),
-    "macOS blockmaps do not belong to the exact DMG and ZIP payloads.",
-  );
   return manifest;
 }
 
@@ -451,37 +397,6 @@ export function validateWindowsUpdaterMetadata(text, manifest, root) {
   invariant(updater.sha512 === installer.sha512 && updaterFile.sha512 === installer.sha512, "Updater SHA-512 mismatch.");
   invariant(updaterFile.size === installer.size, "Updater installer size mismatch.");
   return { installer, absoluteInstaller: join(root, installer.path) };
-}
-
-export function validateMacUpdaterMetadata(text, manifest, root) {
-  const updater = parseUpdaterYaml(text);
-  const payloads = manifest.files.filter(
-    (file) => file.role === "desktop-macos-dmg" || file.role === "desktop-macos-zip",
-  );
-  invariant(manifest.channel === "canary" && payloads.length === 4, "macOS updater linkage requires the exact Canary payload set.");
-  invariant(updater.version === manifest.release.version, "macOS updater version mismatch.");
-  invariant(!Object.hasOwn(updater, "path") && !Object.hasOwn(updater, "sha512"), "Merged macOS updater manifest must not select one architecture at top level.");
-  invariant(Object.hasOwn(updater, "releaseDate"), "Merged macOS updater manifest requires releaseDate.");
-  invariant(updater.files.length === payloads.length, "macOS updater manifest file count mismatch.");
-
-  const expectedNames = [
-    `DasCode-Canary-${manifest.release.version}-arm64.zip`,
-    `DasCode-Canary-${manifest.release.version}-arm64.dmg`,
-    `DasCode-Canary-${manifest.release.version}-x64.zip`,
-    `DasCode-Canary-${manifest.release.version}-x64.dmg`,
-  ];
-  invariant(
-    JSON.stringify(updater.files.map((file) => file.url)) === JSON.stringify(expectedNames),
-    "macOS updater manifest payload order or identity is invalid.",
-  );
-  const payloadByName = new Map(payloads.map((file) => [basename(file.path), file]));
-  for (const updaterFile of updater.files) {
-    const payload = payloadByName.get(updaterFile.url);
-    invariant(payload, `macOS updater payload is not in the release manifest: ${updaterFile.url}.`);
-    invariant(updaterFile.sha512 === payload.sha512, `macOS updater SHA-512 mismatch: ${updaterFile.url}.`);
-    invariant(updaterFile.size === payload.size, `macOS updater size mismatch: ${updaterFile.url}.`);
-  }
-  return payloads.map((payload) => ({ payload, absolutePayload: join(root, payload.path) }));
 }
 
 export const validateUpdaterMetadata = validateWindowsUpdaterMetadata;
@@ -657,14 +572,6 @@ export async function validateBundleDirectory(root, expected) {
   }
   const updaterFile = manifest.files.find((file) => file.role === "desktop-updater-manifest");
   validateWindowsUpdaterMetadata(readFileSync(join(absoluteRoot, updaterFile.path), "utf8"), manifest, absoluteRoot);
-  if (manifest.channel === "canary") {
-    const macUpdaterFile = manifest.files.find((file) => file.role === "desktop-macos-updater-manifest");
-    validateMacUpdaterMetadata(
-      readFileSync(join(absoluteRoot, macUpdaterFile.path), "utf8"),
-      manifest,
-      absoluteRoot,
-    );
-  }
   const npmFile = manifest.files.find((file) => file.role === "npm-package");
   const webFile = manifest.files.find((file) => file.role === "web-prebuilt");
   validateNpmArchive(join(absoluteRoot, npmFile.path), expected.version);
