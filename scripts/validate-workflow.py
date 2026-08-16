@@ -30,7 +30,10 @@ def main() -> None:
         "npm ci --ignore-scripts --no-audit",
         'mkdir -p "$deploy_root/apps/web"',
         "node scripts/assign-vercel-alias.mjs",
-        'verify_release_marker "$deployment_url"',
+        'vercel --cwd "$deploy_root" --token "$VERCEL_TOKEN"',
+        'curl "$marker_path" --deployment "$origin" --yes',
+        'verify_release_marker "$deployment_url" "Raw Vercel deployment" protected',
+        'verify_release_marker "https://$domain" "Aliased deployment" public',
     )
     for marker in required:
         if marker not in text:
@@ -60,6 +63,13 @@ def main() -> None:
     for forbidden in ("VERCEL_TEAM_SLUG", "--scope", "vercel alias"):
         if forbidden in publish_web:
             raise SystemExit(f"Vercel publication must use the exact linked org/project without {forbidden}")
+    raw_verification = publish_web.split(
+        'verify_release_marker "$deployment_url" "Raw Vercel deployment" protected', 1
+    )[0]
+    if '${origin%/}${marker_path}' not in publish_web or "[[ \"$access\" == protected ]]" not in publish_web:
+        raise SystemExit("Vercel verification must distinguish protected raw and public alias access")
+    if 'curl --fail' not in publish_web or "vercel --cwd" not in raw_verification:
+        raise SystemExit("Vercel verification must retain both authenticated raw and public HTTPS checks")
     if "timeout-minutes: 45" not in publish_github:
         raise SystemExit("GitHub desktop publication must allow enough time for the full macOS asset set")
     if "target_commitish" in publisher_text:
