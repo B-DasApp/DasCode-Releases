@@ -65,24 +65,27 @@ def main() -> None:
     if '${origin%/}${marker_path}' not in publish_web or 'curl --fail' not in publish_web:
         raise SystemExit("Vercel publication must retain an unauthenticated public-alias HTTPS check")
     if "timeout-minutes: 45" not in publish_github:
-        raise SystemExit("GitHub desktop publication must allow enough time for the full macOS asset set")
+        raise SystemExit("GitHub desktop publication must retain its bounded release timeout")
     if "target_commitish" in publisher_text:
         raise SystemExit("GitHub release metadata must not replace exact Git ref verification")
     for marker in (
         "desktop-macos-dmg",
-        'expectedFileCount = manifest.channel === "canary" ? 7 : 5',
-        "Manual-install macOS DMGs must not carry updater SHA-512 metadata",
+        "expectedFileCount = 5",
+        'new Map([["desktop-macos-dmg", 0]])',
     ):
         if marker not in contract_text:
-            raise SystemExit(f"release contract is missing Canary macOS policy marker: {marker}")
+            raise SystemExit(f"release contract is missing disabled-macOS policy marker: {marker}")
     for forbidden in (
         "desktop-macos-zip",
         "desktop-macos-blockmap",
         "desktop-macos-updater-manifest",
         "validateMacUpdaterMetadata",
+        "darwin-arm64",
+        "darwin-x64",
+        'manifest.channel === "canary" ? 7 : 5',
     ):
         if forbidden in contract_text:
-            raise SystemExit(f"release contract must keep Canary macOS DMG-only: {forbidden}")
+            raise SystemExit(f"release contract must keep macOS payloads disabled: {forbidden}")
     for marker in ("releaseAssetPaths", "const assetPaths = releaseAssetPaths(root, manifest)"):
         if marker not in publisher_text:
             raise SystemExit(f"GitHub publisher is missing deterministic asset-order policy: {marker}")
