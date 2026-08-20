@@ -11,8 +11,8 @@ The final Actions artifact is named `release-bundle-<request_id>`. Intermediate 
 artifacts may coexist; the controller selects only one exact, case-sensitive final name, verifies its
 non-expired artifact ID and `sha256:` REST digest, and downloads it with a freshly minted App token.
 
-The ZIP has this top-level structure and no unlisted files or links. Stable and Nightly contain the
-five common payloads. Canary additionally contains exactly two manual-install macOS DMGs:
+The ZIP has this top-level structure and no unlisted files or links. Every channel, including
+Canary, contains exactly five payloads. macOS payloads are currently disabled:
 
 ```text
 release-manifest.json
@@ -20,8 +20,6 @@ SHA256SUMS
 desktop/<Windows x64 installer>.exe
 desktop/<Windows x64 installer>.exe.blockmap
 desktop/latest.yml | nightly.yml | canary.yml
-desktop/DasCode-Canary-<version>-arm64.dmg                 # Canary only
-desktop/DasCode-Canary-<version>-x64.dmg                   # Canary only
 npm/<package>.tgz
 web/vercel-prebuilt.tgz
 ```
@@ -82,20 +80,18 @@ for itself), using two spaces before the relative path. The JSON manifest uses s
 ```
 
 Every payload has `path`, `sha256`, positive byte `size`, `mediaType`, and exactly one recognized
-role. The common roles are `desktop-installer`, `desktop-updater-manifest`, `desktop-blockmap`,
-`npm-package`, and `web-prebuilt`. Canary also has exactly two `desktop-macos-dmg` entries. Stable
-and Nightly must have none of that macOS role. The Windows installer has base64 `sha512`; the
-manual-install DMGs deliberately do not carry updater SHA-512 metadata.
+role. The roles are `desktop-installer`, `desktop-updater-manifest`, `desktop-blockmap`,
+`npm-package`, and `web-prebuilt`. Every channel must have zero `desktop-macos-dmg` entries. The
+Windows installer has base64 `sha512`.
 
 The controller independently parses the Windows channel updater YAML and requires its version,
 filename/URL, size, and both SHA-512 fields to match the single installer and its actual bytes.
-Canary's macOS contract is intentionally manual-install-only: there is no macOS updater manifest,
-ZIP, or blockmap. Case-colliding or additional files are rejected.
+There is no macOS updater manifest, ZIP, blockmap, or DMG. Case-colliding or additional files are
+rejected.
 
 The GitHub publisher uploads installers first, then the Windows blockmap, then `SHA256SUMS` and the
 JSON manifest, and the Windows updater YAML last. This prevents that updater manifest from becoming
-visible before its payload. The current Canary macOS DMGs are unsigned and unnotarized; users must
-explicitly approve their first launch. Apple signing and macOS auto-update are separate future
+visible before its payload. Apple signing, macOS builds, and macOS auto-update are separate future
 release-policy changes, not implicit properties of this contract.
 
 The npm archive must contain a regular `package/package.json` for `@das-org/dascode`, the exact
@@ -111,10 +107,8 @@ allowed `publishConfig` is exactly `{ "access": "public" }`:
 }
 ```
 
-Every npm archive must contain the non-empty Windows x64 resource monitor. Canary additionally
-requires non-empty, owner-executable `darwin-arm64` and `darwin-x64` monitors, with no extra monitor
-paths. The controller verifies this inventory and the Unix mode both before and after canonical npm
-repacking.
+Every npm archive must contain the non-empty Windows x64 resource monitor with no extra monitor
+paths. The controller verifies this inventory before and after canonical npm repacking.
 
 In a separate job with OIDC explicitly disabled, the controller safely extracts this archive without
 links, special files, traversal, or `.npmrc`, repacks it with the integrity-locked npm CLI, and

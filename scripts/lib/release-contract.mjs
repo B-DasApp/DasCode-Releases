@@ -12,7 +12,7 @@ export const WORKER_WORKFLOW_PATH = ".github/workflows/release.yml";
 export const WORKER_IMPLEMENTATION_PATH = ".github/workflows/release-worker.yml";
 export const WORKER_WORKFLOW_ID = "244380781";
 export const WORKER_CONTROL_REF = "refs/heads/dascode/release-worker-controller";
-export const WORKER_CONTROL_SHA = "cef1927aefc6c36eccdf83846a142d2144fbb080";
+export const WORKER_CONTROL_SHA = "66dc426921e69517255f1d3f977fa29e2bf8f148";
 export const NPM_PACKAGE_NAME = "@das-org/dascode";
 export const NPM_REPOSITORY_URL =
   "git+https://github.com/B-DasApp/DasCode-Releases.git";
@@ -239,7 +239,7 @@ export function validateManifest(manifest, expected) {
   const expectedDomain = `${manifest.channel === "stable" ? "latest" : manifest.channel}.code.bclouder.dev`;
   invariant(manifest.release.hostedDomain === expectedDomain, "Manifest hosted domain crosses release channels.");
 
-  const expectedFileCount = manifest.channel === "canary" ? 7 : 5;
+  const expectedFileCount = 5;
   invariant(Array.isArray(manifest.files) && manifest.files.length === expectedFileCount, "Manifest files count is invalid.");
   const seenPaths = new Set();
   const seenCaseInsensitivePaths = new Set();
@@ -283,9 +283,7 @@ export function validateManifest(manifest, expected) {
   invariant((roleCounts.get("desktop-blockmap") ?? 0) === 1, "Bundle must have exactly one desktop blockmap.");
   invariant((roleCounts.get("npm-package") ?? 0) === 1, "Bundle must have exactly one npm package.");
   invariant((roleCounts.get("web-prebuilt") ?? 0) === 1, "Bundle must have exactly one web prebuilt archive.");
-  const expectedMacRoleCounts = manifest.channel === "canary"
-    ? new Map([["desktop-macos-dmg", 2]])
-    : new Map([["desktop-macos-dmg", 0]]);
+  const expectedMacRoleCounts = new Map([["desktop-macos-dmg", 0]]);
   for (const [role, count] of expectedMacRoleCounts) {
     invariant((roleCounts.get(role) ?? 0) === count, `${manifest.channel} bundle has an invalid ${role} count.`);
   }
@@ -452,13 +450,7 @@ export function validateNpmArchive(path, expectedVersion) {
   invariant(isRecord(inspected.resourceMonitors), "npm resource-monitor inventory is invalid.");
   const expectedResourceMonitors = [
     "package/dist/resource-monitor/win32-x64/dascode-resource-monitor.exe",
-    ...(/-canary\.\d{8}\.\d+$/u.test(expectedVersion)
-      ? [
-          "package/dist/resource-monitor/darwin-arm64/dascode-resource-monitor",
-          "package/dist/resource-monitor/darwin-x64/dascode-resource-monitor",
-        ]
-      : []),
-  ].sort();
+  ];
   invariant(
     JSON.stringify(Object.keys(inspected.resourceMonitors).sort()) ===
       JSON.stringify(expectedResourceMonitors),
@@ -469,9 +461,6 @@ export function validateNpmArchive(path, expectedVersion) {
     exactKeys(entry, ["mode", "size"]);
     invariant(Number.isSafeInteger(entry.size) && entry.size > 0, "npm package contains an empty resource monitor.");
     invariant(Number.isSafeInteger(entry.mode) && entry.mode >= 0 && entry.mode <= 0o7777, "npm package contains an invalid resource-monitor mode.");
-    if (path.includes("/darwin-")) {
-      invariant((entry.mode & 0o100) !== 0, `npm package Darwin resource monitor is not owner-executable: ${path}.`);
-    }
   }
 }
 

@@ -64,8 +64,6 @@ function manifest() {
       { path: "desktop/DasCode.exe.blockmap", sha256: "3".repeat(64), size: 12, mediaType: "application/octet-stream", role: "desktop-blockmap" },
       { path: "npm/dascode.tgz", sha256: "4".repeat(64), size: 13, mediaType: "application/gzip", role: "npm-package" },
       { path: "web/vercel-prebuilt.tgz", sha256: "5".repeat(64), size: 14, mediaType: "application/gzip", role: "web-prebuilt" },
-      { path: `desktop/DasCode-Canary-${version}-arm64.dmg`, sha256: "6".repeat(64), size: 16, mediaType: "application/x-apple-diskimage", role: "desktop-macos-dmg" },
-      { path: `desktop/DasCode-Canary-${version}-x64.dmg`, sha256: "8".repeat(64), size: 18, mediaType: "application/x-apple-diskimage", role: "desktop-macos-dmg" },
     ],
   };
 }
@@ -102,30 +100,15 @@ test("validates the exact cross-repository manifest identity", () => {
     "desktop/unrelated.exe.blockmap";
   assert.throws(() => validateManifest(wrongBlockmap, expected), /blockmap does not belong/);
 
-  const missingMacPayload = manifest();
-  missingMacPayload.files = missingMacPayload.files.filter(
-    (file) => file.path !== `desktop/DasCode-Canary-${version}-x64.dmg`,
-  );
-  assert.throws(() => validateManifest(missingMacPayload, expected), /files count is invalid/);
-
-  const unexpectedMacZip = manifest();
-  const x64Dmg = unexpectedMacZip.files.find(
-    (file) => file.path === `desktop/DasCode-Canary-${version}-x64.dmg`,
-  );
-  x64Dmg.path = `desktop/DasCode-Canary-${version}-x64.zip`;
-  x64Dmg.role = "desktop-macos-zip";
-  x64Dmg.mediaType = "application/zip";
-  assert.throws(() => validateManifest(unexpectedMacZip, expected), /Unsupported release role/);
-
-  const wrongMacMediaType = manifest();
-  wrongMacMediaType.files.find((file) => file.role === "desktop-macos-dmg").mediaType =
-    "application/octet-stream";
-  assert.throws(() => validateManifest(wrongMacMediaType, expected), /macOS DMG media type/);
-
-  const updaterLinkedMacDmg = manifest();
-  updaterLinkedMacDmg.files.find((file) => file.role === "desktop-macos-dmg").sha512 =
-    `${"B".repeat(86)}==`;
-  assert.throws(() => validateManifest(updaterLinkedMacDmg, expected), /must not carry updater/);
+  const unexpectedMacPayload = manifest();
+  unexpectedMacPayload.files.push({
+    path: `desktop/DasCode-Canary-${version}-arm64.dmg`,
+    sha256: "6".repeat(64),
+    size: 16,
+    mediaType: "application/x-apple-diskimage",
+    role: "desktop-macos-dmg",
+  });
+  assert.throws(() => validateManifest(unexpectedMacPayload, expected), /files count is invalid/);
 });
 
 test("keeps Stable and Nightly on the Windows-only desktop contract", () => {
@@ -206,13 +189,13 @@ test("maps release asset paths without forwarding array indexes as basename suff
   );
 });
 
-test("publishes the complete Canary DMG-only desktop set in deterministic order", () => {
+test("publishes the complete Windows-only Canary desktop set in deterministic order", () => {
   const names = releaseAssetNames(releaseAssetPaths("/release", manifest()));
-  assert.equal(names.length, 7);
+  assert.equal(names.length, 5);
   assert.equal(new Set(names.map((name) => name.toLowerCase())).size, names.length);
 
   const payloadIndexes = names
-    .map((name, index) => (/\.(?:exe|dmg)$/u.test(name) ? index : -1))
+    .map((name, index) => (name.endsWith(".exe") ? index : -1))
     .filter((index) => index >= 0);
   const blockmapIndexes = names
     .map((name, index) => (name.endsWith(".blockmap") ? index : -1))

@@ -23,8 +23,7 @@ bridge before cutover; do not restore a credential to unprotected private workfl
   run title, first attempt, conclusion, final artifact identity, and REST artifact digest. It never
   retrieves private logs.
 - `production` gates three ordered publication jobs: npm, then a public desktop release, then Vercel.
-  The desktop release contains Windows x64 for all channels and additionally macOS arm64/x64 for
-  Canary. The Mac payloads are currently unsigned and unnotarized.
+  The desktop release contains Windows x64 for all channels. macOS builds are currently disabled.
   A credential-free job turns the verified npm payload into a frozen canonical artifact and passes
   its SHA-512 separately; the OIDC job verifies that identity. GitHub and Vercel each download the
   full immutable bundle from this controller run and repeat its validation before using it.
@@ -105,8 +104,8 @@ The worker rewrites the packed npm metadata to repository URL
 `git+https://github.com/B-DasApp/DasCode-Releases.git`, which npm requires to match this publisher.
 The controller rejects `repository.directory`, `scripts`, registry-bearing `publishConfig`, and
 archived `.npmrc`; the sole allowed publish setting is exact public access.
-It also requires the packed Windows resource monitor in every channel and owner-executable native
-Darwin arm64/x64 monitors in Canary, then rechecks them after canonical repacking.
+It also requires the packed Windows resource monitor in every channel, then rechecks it after
+canonical repacking.
 The controller uses npm `11.16.0`, bundled with pinned Node `24.18.0`, both to canonicalize and to
 publish. Vercel `59.1.3` is installed from the committed integrity lockfile with lifecycle scripts
 disabled, and its compatible `tar` dependency is overridden to patched `7.5.22`. Its upstream package
@@ -155,11 +154,9 @@ private worker attempt is rejected. For a transient publication failure, rerun o
 in the same controller run so they reuse the verified bundle identity. The authorization job refuses
 workflow run attempts after attempt 1; do not use **Re-run all jobs**.
 
-Canary GitHub Releases publish exactly one DMG for macOS arm64 and one for macOS x64. They are
-unsigned, unnotarized, manual-install previews; the contract intentionally has no macOS ZIP,
-blockmap, or updater manifest. The controller verifies both DMGs against the worker manifest and
-SHA256SUMS. Stable and Nightly deliberately remain on the Windows-only artifact contract until their
-release policy is expanded separately.
+Canary GitHub Releases currently publish no macOS artifacts. The contract rejects macOS DMGs, ZIPs,
+blockmaps, and updater manifests until macOS builds are explicitly restored with a separately
+reviewed controller/worker contract.
 
 Example after setup (do not run during installation):
 
