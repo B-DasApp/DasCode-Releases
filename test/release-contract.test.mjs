@@ -111,48 +111,87 @@ test("validates the exact cross-repository manifest identity", () => {
   assert.throws(() => validateManifest(unexpectedMacPayload, expected), /files count is invalid/);
 });
 
-test("keeps Stable and Nightly on the Windows-only desktop contract", () => {
-  for (const channel of ["stable", "nightly"]) {
-    const value = manifest();
-    value.channel = channel;
-    value.requestId = `dcr-123-1-${channel}-aaaaaaaaaaaa`;
-    value.source.markerSha = null;
-    value.files = value.files.filter((file) => !file.role.startsWith("desktop-macos-"));
-    const channelExpected = {
-      ...expected,
-      requestId: value.requestId,
-      channel,
-      canaryMarkerSha: null,
-    };
-    if (channel === "stable") {
-      value.source.ref = "refs/tags/v0.0.33";
-      value.release = {
-        version: "0.0.33",
-        tag: "v0.0.33",
-        npmDistTag: "latest",
-        prerelease: false,
-        makeLatest: true,
-        hostedDomain: "latest.code.bclouder.dev",
-      };
-      value.files.find((file) => file.role === "desktop-updater-manifest").path =
-        "desktop/latest.yml";
-    } else {
-      value.source.ref = "refs/heads/dascode/main";
-      value.release = {
-        version: "0.0.33-nightly.20260816.90",
-        tag: "v0.0.33-nightly.20260816.90",
-        npmDistTag: "nightly",
-        prerelease: true,
-        makeLatest: false,
-        hostedDomain: "nightly.code.bclouder.dev",
-      };
-      value.files.find((file) => file.role === "desktop-updater-manifest").path =
-        "desktop/nightly.yml";
-    }
-    channelExpected.sourceRef = value.source.ref;
-    channelExpected.version = value.release.version;
-    assert.equal(validateManifest(value, channelExpected).files.length, 5);
-  }
+test("keeps Stable on the Windows-only desktop contract", () => {
+  const value = manifest();
+  value.channel = "stable";
+  value.requestId = "dcr-123-1-stable-aaaaaaaaaaaa";
+  value.source.ref = "refs/tags/v0.0.33";
+  value.source.markerSha = null;
+  value.release = {
+    version: "0.0.33",
+    tag: "v0.0.33",
+    npmDistTag: "latest",
+    prerelease: false,
+    makeLatest: true,
+    hostedDomain: "latest.code.bclouder.dev",
+  };
+  value.files.find((file) => file.role === "desktop-updater-manifest").path =
+    "desktop/latest.yml";
+  const stableExpected = {
+    ...expected,
+    requestId: value.requestId,
+    channel: "stable",
+    sourceRef: value.source.ref,
+    canaryMarkerSha: null,
+    version: value.release.version,
+  };
+
+  assert.equal(validateManifest(value, stableExpected).files.length, 5);
+});
+
+test("requires exactly one manual-install arm64 DMG for Nightly", () => {
+  const value = manifest();
+  value.channel = "nightly";
+  value.requestId = "dcr-123-1-nightly-aaaaaaaaaaaa";
+  value.source.ref = "refs/heads/dascode/main";
+  value.source.markerSha = null;
+  value.release = {
+    version: "0.0.33-nightly.20260816.90",
+    tag: "v0.0.33-nightly.20260816.90",
+    npmDistTag: "nightly",
+    prerelease: true,
+    makeLatest: false,
+    hostedDomain: "nightly.code.bclouder.dev",
+  };
+  value.files.find((file) => file.role === "desktop-updater-manifest").path =
+    "desktop/nightly.yml";
+  value.files.push({
+    path: `desktop/DasCode-${value.release.version}-arm64.dmg`,
+    sha256: "6".repeat(64),
+    size: 16,
+    mediaType: "application/x-apple-diskimage",
+    role: "desktop-macos-dmg",
+  });
+  const nightlyExpected = {
+    ...expected,
+    requestId: value.requestId,
+    channel: "nightly",
+    sourceRef: value.source.ref,
+    canaryMarkerSha: null,
+    version: value.release.version,
+  };
+
+  assert.equal(validateManifest(value, nightlyExpected).files.length, 6);
+
+  const wrongArchitecture = structuredClone(value);
+  wrongArchitecture.files.find((file) => file.role === "desktop-macos-dmg").path =
+    `desktop/DasCode-${value.release.version}-x64.dmg`;
+  assert.throws(
+    () => validateManifest(wrongArchitecture, nightlyExpected),
+    /exact Nightly version and arm64 architecture/,
+  );
+
+  const updaterLinkedDmg = structuredClone(value);
+  updaterLinkedDmg.files.find((file) => file.role === "desktop-macos-dmg").sha512 =
+    `${"B".repeat(86)}==`;
+  assert.throws(
+    () => validateManifest(updaterLinkedDmg, nightlyExpected),
+    /must not carry updater/,
+  );
+
+  const names = releaseAssetNames(releaseAssetPaths("/release", value));
+  assert.equal(names.length, 6);
+  assert.ok(names.indexOf(`DasCode-${value.release.version}-arm64.dmg`) < names.indexOf("nightly.yml"));
 });
 
 test("requires npm trusted-publisher metadata and no lifecycle scripts", () => {
