@@ -12,7 +12,7 @@ export const WORKER_WORKFLOW_PATH = ".github/workflows/release.yml";
 export const WORKER_IMPLEMENTATION_PATH = ".github/workflows/release-worker.yml";
 export const WORKER_WORKFLOW_ID = "244380781";
 export const WORKER_CONTROL_REF = "refs/heads/dascode/release-worker-controller";
-export const WORKER_CONTROL_SHA = "66dc426921e69517255f1d3f977fa29e2bf8f148";
+export const WORKER_CONTROL_SHA = "e18e1d4416e70f74744c540b3512f4052fd57624";
 export const NPM_PACKAGE_NAME = "@das-org/dascode";
 export const NPM_REPOSITORY_URL =
   "git+https://github.com/B-DasApp/DasCode-Releases.git";
@@ -239,7 +239,7 @@ export function validateManifest(manifest, expected) {
   const expectedDomain = `${manifest.channel === "stable" ? "latest" : manifest.channel}.code.bclouder.dev`;
   invariant(manifest.release.hostedDomain === expectedDomain, "Manifest hosted domain crosses release channels.");
 
-  const expectedFileCount = 5;
+  const expectedFileCount = manifest.channel === "nightly" ? 6 : 5;
   invariant(Array.isArray(manifest.files) && manifest.files.length === expectedFileCount, "Manifest files count is invalid.");
   const seenPaths = new Set();
   const seenCaseInsensitivePaths = new Set();
@@ -266,11 +266,11 @@ export function validateManifest(manifest, expected) {
     }
     if (file.role === "desktop-blockmap") invariant(file.path.startsWith("desktop/") && file.path.endsWith(".blockmap"), "Desktop blockmap path is invalid.");
     if (file.role === "desktop-updater-manifest") invariant(file.path === `desktop/${expectedDistTag}.yml`, "Updater manifest does not match the release channel.");
-    const macArtifactPrefix = `desktop/DasCode-Canary-${manifest.release.version}-`;
     if (file.role === "desktop-macos-dmg") {
       invariant(
-        [`${macArtifactPrefix}arm64.dmg`, `${macArtifactPrefix}x64.dmg`].includes(file.path),
-        "macOS DMG path does not match the exact Canary version and architecture.",
+        manifest.channel === "nightly" &&
+          file.path === `desktop/DasCode-${manifest.release.version}-arm64.dmg`,
+        "macOS DMG path does not match the exact Nightly version and arm64 architecture.",
       );
       invariant(file.mediaType === "application/x-apple-diskimage", "macOS DMG media type is invalid.");
       invariant(!Object.hasOwn(file, "sha512"), "Manual-install macOS DMGs must not carry updater SHA-512 metadata.");
@@ -283,7 +283,9 @@ export function validateManifest(manifest, expected) {
   invariant((roleCounts.get("desktop-blockmap") ?? 0) === 1, "Bundle must have exactly one desktop blockmap.");
   invariant((roleCounts.get("npm-package") ?? 0) === 1, "Bundle must have exactly one npm package.");
   invariant((roleCounts.get("web-prebuilt") ?? 0) === 1, "Bundle must have exactly one web prebuilt archive.");
-  const expectedMacRoleCounts = new Map([["desktop-macos-dmg", 0]]);
+  const expectedMacRoleCounts = new Map([
+    ["desktop-macos-dmg", manifest.channel === "nightly" ? 1 : 0],
+  ]);
   for (const [role, count] of expectedMacRoleCounts) {
     invariant((roleCounts.get(role) ?? 0) === count, `${manifest.channel} bundle has an invalid ${role} count.`);
   }

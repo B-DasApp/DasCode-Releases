@@ -70,22 +70,21 @@ def main() -> None:
         raise SystemExit("GitHub release metadata must not replace exact Git ref verification")
     for marker in (
         "desktop-macos-dmg",
-        "expectedFileCount = 5",
-        'new Map([["desktop-macos-dmg", 0]])',
+        'expectedFileCount = manifest.channel === "nightly" ? 6 : 5',
+        'manifest.channel === "nightly" ? 1 : 0',
+        'desktop/DasCode-${manifest.release.version}-arm64.dmg',
     ):
         if marker not in contract_text:
-            raise SystemExit(f"release contract is missing disabled-macOS policy marker: {marker}")
+            raise SystemExit(f"release contract is missing Nightly macOS arm64 policy marker: {marker}")
     for forbidden in (
         "desktop-macos-zip",
         "desktop-macos-blockmap",
         "desktop-macos-updater-manifest",
         "validateMacUpdaterMetadata",
-        "darwin-arm64",
-        "darwin-x64",
         'manifest.channel === "canary" ? 7 : 5',
     ):
         if forbidden in contract_text:
-            raise SystemExit(f"release contract must keep macOS payloads disabled: {forbidden}")
+            raise SystemExit(f"release contract must keep macOS payloads DMG-only: {forbidden}")
     for marker in ("releaseAssetPaths", "const assetPaths = releaseAssetPaths(root, manifest)"):
         if marker not in publisher_text:
             raise SystemExit(f"GitHub publisher is missing deterministic asset-order policy: {marker}")

@@ -23,7 +23,8 @@ bridge before cutover; do not restore a credential to unprotected private workfl
   run title, first attempt, conclusion, final artifact identity, and REST artifact digest. It never
   retrieves private logs.
 - `production` gates three ordered publication jobs: npm, then a public desktop release, then Vercel.
-  The desktop release contains Windows x64 for all channels. macOS builds are currently disabled.
+  The desktop release contains Windows x64 for all channels and one unsigned, manual-install macOS
+  arm64 DMG for Nightly. Stable and Canary contain no macOS payloads.
   A credential-free job turns the verified npm payload into a frozen canonical artifact and passes
   its SHA-512 separately; the OIDC job verifies that identity. GitHub and Vercel each download the
   full immutable bundle from this controller run and repeat its validation before using it.
@@ -154,9 +155,9 @@ private worker attempt is rejected. For a transient publication failure, rerun o
 in the same controller run so they reuse the verified bundle identity. The authorization job refuses
 workflow run attempts after attempt 1; do not use **Re-run all jobs**.
 
-Canary GitHub Releases currently publish no macOS artifacts. The contract rejects macOS DMGs, ZIPs,
-blockmaps, and updater manifests until macOS builds are explicitly restored with a separately
-reviewed controller/worker contract.
+Nightly GitHub Releases publish exactly one native arm64 DMG. It is unsigned and unnotarized, with no
+Mac ZIP, blockmap, or updater manifest, so macOS auto-update is not advertised. Canary and Stable
+publish no macOS artifacts.
 
 Example after setup (do not run during installation):
 
