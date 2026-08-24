@@ -306,7 +306,9 @@ jobs:
     name: Publish frozen npm package
     needs: [authorize, acquire, prepare-npm]
     if: needs.acquire.result == 'success' && needs.prepare-npm.result == 'success'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    # npm provenance accepts GitHub-hosted runners only. Keep this credentialed
+    # publication boundary off third-party and self-hosted runner pools.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: production
     permissions:
