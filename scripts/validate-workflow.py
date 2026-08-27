@@ -72,9 +72,11 @@ def main() -> None:
         raise SystemExit("GitHub release metadata must not replace exact Git ref verification")
     for marker in (
         "desktop-macos-dmg",
-        'expectedFileCount = manifest.channel === "nightly" ? 6 : 5',
-        'manifest.channel === "nightly" ? 1 : 0',
+        'expectedFileCount = manifest.channel === "stable" ? 5 : 6',
+        'manifest.channel === "stable" ? 0 : 1',
         'desktop/DasCode-${manifest.release.version}-arm64.dmg',
+        'desktop/DasCode-Canary-${manifest.release.version}-arm64.dmg',
+        "package/dist/resource-monitor/darwin-arm64/dascode-resource-monitor",
     ):
         if marker not in contract_text:
             raise SystemExit(f"release contract is missing Nightly macOS arm64 policy marker: {marker}")
@@ -83,7 +85,7 @@ def main() -> None:
         "desktop-macos-blockmap",
         "desktop-macos-updater-manifest",
         "validateMacUpdaterMetadata",
-        'manifest.channel === "canary" ? 7 : 5',
+        'desktop/DasCode-Canary-${manifest.release.version}-x64.dmg',
     ):
         if forbidden in contract_text:
             raise SystemExit(f"release contract must keep macOS payloads DMG-only: {forbidden}")

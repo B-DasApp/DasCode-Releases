@@ -62,6 +62,7 @@ function manifest() {
       { path: "desktop/DasCode.exe", sha256: "1".repeat(64), sha512: installerSha512, size: 10, mediaType: "application/octet-stream", role: "desktop-installer" },
       { path: "desktop/canary.yml", sha256: "2".repeat(64), size: 11, mediaType: "text/yaml", role: "desktop-updater-manifest" },
       { path: "desktop/DasCode.exe.blockmap", sha256: "3".repeat(64), size: 12, mediaType: "application/octet-stream", role: "desktop-blockmap" },
+      { path: `desktop/DasCode-Canary-${version}-arm64.dmg`, sha256: "6".repeat(64), size: 16, mediaType: "application/x-apple-diskimage", role: "desktop-macos-dmg" },
       { path: "npm/dascode.tgz", sha256: "4".repeat(64), size: 13, mediaType: "application/gzip", role: "npm-package" },
       { path: "web/vercel-prebuilt.tgz", sha256: "5".repeat(64), size: 14, mediaType: "application/gzip", role: "web-prebuilt" },
     ],
@@ -100,15 +101,13 @@ test("validates the exact cross-repository manifest identity", () => {
     "desktop/unrelated.exe.blockmap";
   assert.throws(() => validateManifest(wrongBlockmap, expected), /blockmap does not belong/);
 
-  const unexpectedMacPayload = manifest();
-  unexpectedMacPayload.files.push({
-    path: `desktop/DasCode-Canary-${version}-arm64.dmg`,
-    sha256: "6".repeat(64),
-    size: 16,
-    mediaType: "application/x-apple-diskimage",
-    role: "desktop-macos-dmg",
-  });
-  assert.throws(() => validateManifest(unexpectedMacPayload, expected), /files count is invalid/);
+  const wrongMacArchitecture = manifest();
+  wrongMacArchitecture.files.find((file) => file.role === "desktop-macos-dmg").path =
+    `desktop/DasCode-Canary-${version}-x64.dmg`;
+  assert.throws(
+    () => validateManifest(wrongMacArchitecture, expected),
+    /exact channel version and arm64 architecture/,
+  );
 });
 
 test("keeps Stable on the Windows-only desktop contract", () => {
@@ -127,6 +126,7 @@ test("keeps Stable on the Windows-only desktop contract", () => {
   };
   value.files.find((file) => file.role === "desktop-updater-manifest").path =
     "desktop/latest.yml";
+  value.files = value.files.filter((file) => file.role !== "desktop-macos-dmg");
   const stableExpected = {
     ...expected,
     requestId: value.requestId,
@@ -155,13 +155,8 @@ test("requires exactly one manual-install arm64 DMG for Nightly", () => {
   };
   value.files.find((file) => file.role === "desktop-updater-manifest").path =
     "desktop/nightly.yml";
-  value.files.push({
-    path: `desktop/DasCode-${value.release.version}-arm64.dmg`,
-    sha256: "6".repeat(64),
-    size: 16,
-    mediaType: "application/x-apple-diskimage",
-    role: "desktop-macos-dmg",
-  });
+  value.files.find((file) => file.role === "desktop-macos-dmg").path =
+    `desktop/DasCode-${value.release.version}-arm64.dmg`;
   const nightlyExpected = {
     ...expected,
     requestId: value.requestId,
@@ -178,7 +173,7 @@ test("requires exactly one manual-install arm64 DMG for Nightly", () => {
     `desktop/DasCode-${value.release.version}-x64.dmg`;
   assert.throws(
     () => validateManifest(wrongArchitecture, nightlyExpected),
-    /exact Nightly version and arm64 architecture/,
+    /exact channel version and arm64 architecture/,
   );
 
   const updaterLinkedDmg = structuredClone(value);
@@ -228,13 +223,13 @@ test("maps release asset paths without forwarding array indexes as basename suff
   );
 });
 
-test("publishes the complete Windows-only Canary desktop set in deterministic order", () => {
+test("publishes the complete Canary desktop set with one arm64 DMG in deterministic order", () => {
   const names = releaseAssetNames(releaseAssetPaths("/release", manifest()));
-  assert.equal(names.length, 5);
+  assert.equal(names.length, 6);
   assert.equal(new Set(names.map((name) => name.toLowerCase())).size, names.length);
 
   const payloadIndexes = names
-    .map((name, index) => (name.endsWith(".exe") ? index : -1))
+    .map((name, index) => (name.endsWith(".exe") || name.endsWith(".dmg") ? index : -1))
     .filter((index) => index >= 0);
   const blockmapIndexes = names
     .map((name, index) => (name.endsWith(".blockmap") ? index : -1))
