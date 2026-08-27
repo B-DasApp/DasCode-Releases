@@ -11,8 +11,8 @@ The final Actions artifact is named `release-bundle-<request_id>`. Intermediate 
 artifacts may coexist; the controller selects only one exact, case-sensitive final name, verifies its
 non-expired artifact ID and `sha256:` REST digest, and downloads it with a freshly minted App token.
 
-The ZIP has this top-level structure and no unlisted files or links. Stable and Canary contain
-exactly five payloads. Nightly contains six because it adds one native macOS arm64 DMG:
+The ZIP has this top-level structure and no unlisted files or links. Stable contains exactly five
+payloads. Nightly and Canary contain six because each adds one native macOS arm64 DMG:
 
 ```text
 release-manifest.json
@@ -21,6 +21,7 @@ desktop/<Windows x64 installer>.exe
 desktop/<Windows x64 installer>.exe.blockmap
 desktop/latest.yml | nightly.yml | canary.yml
 desktop/DasCode-<nightly-version>-arm64.dmg                # Nightly only
+desktop/DasCode-Canary-<canary-version>-arm64.dmg          # Canary only
 npm/<package>.tgz
 web/vercel-prebuilt.tgz
 ```
@@ -82,8 +83,8 @@ for itself), using two spaces before the relative path. The JSON manifest uses s
 
 Every payload has `path`, `sha256`, positive byte `size`, `mediaType`, and exactly one recognized
 role. The roles are `desktop-installer`, `desktop-updater-manifest`, `desktop-blockmap`,
-`desktop-macos-dmg`, `npm-package`, and `web-prebuilt`. Nightly has exactly one
-`desktop-macos-dmg` entry for arm64; Stable and Canary have none. The Windows installer has base64
+`desktop-macos-dmg`, `npm-package`, and `web-prebuilt`. Nightly and Canary each have exactly one
+`desktop-macos-dmg` entry for arm64; Stable has none. The Windows installer has base64
 `sha512`. The manual-install DMG deliberately does not carry updater SHA-512 metadata.
 
 The controller independently parses the Windows channel updater YAML and requires its version,
@@ -92,7 +93,7 @@ There is no macOS updater manifest, ZIP, or blockmap. Case-colliding or addition
 
 The GitHub publisher uploads installers first, then the Windows blockmap, then `SHA256SUMS` and the
 JSON manifest, and the Windows updater YAML last. This prevents that updater manifest from becoming
-visible before its payload. The Nightly arm64 DMG is unsigned and manual-install-only. Apple signing,
+visible before its payload. The Nightly and Canary arm64 DMGs are unsigned and manual-install-only. Apple signing,
 notarization, and macOS auto-update are separate future release-policy changes, not implicit
 properties of this contract.
 
@@ -109,8 +110,9 @@ allowed `publishConfig` is exactly `{ "access": "public" }`:
 }
 ```
 
-Every npm archive must contain the non-empty Windows x64 resource monitor with no extra monitor
-paths. The controller verifies this inventory before and after canonical npm repacking.
+Every npm archive must contain the non-empty Windows x64 resource monitor. Canary must additionally
+contain the executable Darwin arm64 resource monitor, with no other monitor paths. The controller
+verifies this inventory before and after canonical npm repacking.
 
 In a separate job with OIDC explicitly disabled, the controller safely extracts this archive without
 links, special files, traversal, or `.npmrc`, repacks it with the integrity-locked npm CLI, and

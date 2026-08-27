@@ -24,7 +24,7 @@ bridge before cutover; do not restore a credential to unprotected private workfl
   retrieves private logs.
 - `production` gates three ordered publication jobs: npm, then a public desktop release, then Vercel.
   The desktop release contains Windows x64 for all channels and one unsigned, manual-install macOS
-  arm64 DMG for Nightly. Stable and Canary contain no macOS payloads.
+  arm64 DMG for Nightly and Canary. Stable contains no macOS payloads.
   A credential-free job turns the verified npm payload into a frozen canonical artifact and passes
   its SHA-512 separately; the OIDC job verifies that identity. GitHub and Vercel each download the
   full immutable bundle from this controller run and repeat its validation before using it.
@@ -105,8 +105,8 @@ The worker rewrites the packed npm metadata to repository URL
 `git+https://github.com/B-DasApp/DasCode-Releases.git`, which npm requires to match this publisher.
 The controller rejects `repository.directory`, `scripts`, registry-bearing `publishConfig`, and
 archived `.npmrc`; the sole allowed publish setting is exact public access.
-It also requires the packed Windows resource monitor in every channel, then rechecks it after
-canonical repacking.
+It also requires the packed Windows resource monitor in every channel and the Darwin arm64 resource
+monitor in Canary, then rechecks that exact inventory after canonical repacking.
 The controller uses npm `11.16.0`, bundled with pinned Node `24.18.0`, both to canonicalize and to
 publish. Vercel `59.1.3` is installed from the committed integrity lockfile with lifecycle scripts
 disabled, and its compatible `tar` dependency is overridden to patched `7.5.22`. Its upstream package
@@ -155,9 +155,9 @@ private worker attempt is rejected. For a transient publication failure, rerun o
 in the same controller run so they reuse the verified bundle identity. The authorization job refuses
 workflow run attempts after attempt 1; do not use **Re-run all jobs**.
 
-Nightly GitHub Releases publish exactly one native arm64 DMG. It is unsigned and unnotarized, with no
-Mac ZIP, blockmap, or updater manifest, so macOS auto-update is not advertised. Canary and Stable
-publish no macOS artifacts.
+Nightly and Canary GitHub Releases publish exactly one native arm64 DMG. It is unsigned and
+unnotarized, with no Mac ZIP, blockmap, or updater manifest, so macOS auto-update is not advertised.
+Stable publishes no macOS artifacts.
 
 Example after setup (do not run during installation):
 

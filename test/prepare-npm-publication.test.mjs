@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -34,11 +35,13 @@ test("safely repacks a worker archive into deterministic npm-owned bytes", () =>
   writeFileSync(join(packageDir, "dist", "cli.js"), "console.log('ok');\n");
   for (const [platform, binary] of [
     ["win32-x64", "dascode-resource-monitor.exe"],
+    ["darwin-arm64", "dascode-resource-monitor"],
   ]) {
     const monitorDir = join(packageDir, "dist", "resource-monitor", platform);
     mkdirSync(monitorDir, { recursive: true });
     const monitorPath = join(monitorDir, binary);
     writeFileSync(monitorPath, `${platform}-monitor`);
+    if (platform.startsWith("darwin-")) chmodSync(monitorPath, 0o755);
   }
   const archive = join(root, "worker.tgz");
   execFileSync("tar", ["-czf", archive, "-C", join(root, "source"), "package"]);
@@ -57,7 +60,7 @@ test("safely repacks a worker archive into deterministic npm-owned bytes", () =>
   assert.equal(digest(first), digest(second));
 });
 
-test("rejects a Canary package containing an unexpected Darwin resource monitor", () => {
+test("rejects a Canary package containing a non-executable Darwin resource monitor", () => {
   const root = mkdtempSync(join(tmpdir(), "dascode-canonical-npm-monitor-"));
   const packageDir = join(root, "source", "package");
   mkdirSync(join(packageDir, "dist", "resource-monitor", "win32-x64"), { recursive: true });
@@ -91,6 +94,6 @@ test("rejects a Canary package containing an unexpected Darwin resource monitor"
         version: "1.2.4-canary.20260816.9",
         outputDir: join(root, "output"),
       }),
-    /exact release resource-monitor set/,
+    /Darwin resource monitors must be executable/,
   );
 });
