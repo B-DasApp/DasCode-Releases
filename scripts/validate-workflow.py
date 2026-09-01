@@ -75,7 +75,6 @@ def main() -> None:
         'expectedFileCount = manifest.channel === "stable" ? 5 : 6',
         'manifest.channel === "stable" ? 0 : 1',
         'desktop/DasCode-${manifest.release.version}-arm64.dmg',
-        'desktop/DasCode-Canary-${manifest.release.version}-arm64.dmg',
         "package/dist/resource-monitor/darwin-arm64/dascode-resource-monitor",
     ):
         if marker not in contract_text:
@@ -85,7 +84,7 @@ def main() -> None:
         "desktop-macos-blockmap",
         "desktop-macos-updater-manifest",
         "validateMacUpdaterMetadata",
-        'desktop/DasCode-Canary-${manifest.release.version}-x64.dmg',
+        'desktop/DasCode-${manifest.release.version}-x64.dmg',
     ):
         if forbidden in contract_text:
             raise SystemExit(f"release contract must keep macOS payloads DMG-only: {forbidden}")

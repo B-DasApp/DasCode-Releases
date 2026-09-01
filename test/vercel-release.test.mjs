@@ -8,8 +8,8 @@ import {
 
 const input = {
   deploymentUrl: "https://dascode-abc123.vercel.app",
-  domain: "canary.code.bclouder.dev",
-  channel: "canary",
+  domain: "nightly.code.bclouder.dev",
+  channel: "nightly",
   token: "secret-token",
   teamId: "team_abcdefghijklmnop",
   projectId: "prj_abcdefghijklmnop",
@@ -35,8 +35,8 @@ function deployment(overrides = {}) {
 
 const marker = {
   schemaVersion: 1,
-  channel: "canary",
-  version: "0.0.33-canary.20260816.8",
+  channel: "nightly",
+  version: "0.0.33-nightly.20260816.8",
   sourceSha: "5d237e478973383f7ef2fc64280a162c9675cb91",
 };
 
@@ -67,7 +67,7 @@ function bypassRecord(secret) {
   };
 }
 
-test("assigns and verifies an exact team-scoped Canary alias", async () => {
+test("assigns and verifies an exact team-scoped Nightly alias", async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {
     calls.push({ url: String(url), init });
@@ -99,7 +99,7 @@ test("accepts an idempotent conflict only when the alias listing proves ownershi
 
 test("rejects cross-channel domains and malformed deployment URLs before network access", () => {
   assert.throws(
-    () => validateVercelReleaseInput({ ...input, channel: "nightly" }),
+    () => validateVercelReleaseInput({ ...input, domain: "latest.code.bclouder.dev" }),
     /does not belong/,
   );
   assert.throws(
@@ -132,7 +132,7 @@ test("does not mutate aliases when deployment ownership or state is wrong", asyn
 test("requires the exact non-redirect alias after assignment", async () => {
   for (const aliases of [
     [],
-    [{ uid: "alias_1", alias: "nightly.code.bclouder.dev", created: new Date().toISOString() }],
+    [{ uid: "alias_1", alias: "latest.code.bclouder.dev", created: new Date().toISOString() }],
     [{ uid: "alias_1", alias: input.domain, created: new Date().toISOString(), redirect: "elsewhere.example" }],
   ]) {
     let calls = 0;

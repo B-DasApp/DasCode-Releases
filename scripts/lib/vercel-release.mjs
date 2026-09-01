@@ -11,7 +11,6 @@ const bypassSecretPattern = /^[A-Za-z0-9]{32}$/u;
 const domainsByChannel = new Map([
   ["stable", new Set(["latest.code.bclouder.dev", "code.bclouder.dev"])],
   ["nightly", new Set(["nightly.code.bclouder.dev"])],
-  ["canary", new Set(["canary.code.bclouder.dev"])],
 ]);
 
 function invariant(condition, message) {

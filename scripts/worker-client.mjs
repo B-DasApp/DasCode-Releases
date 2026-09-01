@@ -105,45 +105,6 @@ async function sleep(milliseconds) {
   await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-async function canaryMarkerSha(token, channel, sourceSha) {
-  const response = await request(
-    token,
-    `/repos/${SOURCE_REPOSITORY}/contents/${encodeURIComponent(".canary-source.json")}?ref=${sourceSha}`,
-    {},
-    channel === "canary" ? [200] : [200, 404],
-  );
-  if (response.status === 404) return null;
-  const content = await response.json();
-  invariant(content.type === "file" && content.encoding === "base64", "Canary marker is not a regular file.");
-  const marker = JSON.parse(Buffer.from(content.content, "base64").toString("utf8"));
-  invariant(
-    marker !== null && typeof marker === "object" && !Array.isArray(marker),
-    "Canary marker must be an object.",
-  );
-  invariant(
-    JSON.stringify(Object.keys(marker).sort()) ===
-      JSON.stringify(["headSha", "pullRequest", "repository", "schemaVersion", "sourceRef"]),
-    "Canary marker fields are not canonical.",
-  );
-  invariant(marker.schemaVersion === 1, "Canary marker schemaVersion mismatch.");
-  invariant(marker.repository === "pingdotgg/t3code", "Canary marker repository mismatch.");
-  invariant(marker.pullRequest === 2829, "Canary marker pull request mismatch.");
-  invariant(marker.sourceRef === "refs/pull/2829/head", "Canary marker source ref mismatch.");
-  invariant(/^[0-9a-f]{40}$/u.test(marker.headSha), "Canary marker has an invalid headSha.");
-  const compareResponse = await request(
-    token,
-    `/repos/${SOURCE_REPOSITORY}/compare/${marker.headSha}...${sourceSha}`,
-  );
-  const comparison = await compareResponse.json();
-  const imported = ["ahead", "identical"].includes(comparison.status);
-  if (channel !== "canary") {
-    invariant(!imported, "Stable and Nightly sources cannot contain the pinned Canary import.");
-    return null;
-  }
-  invariant(imported, "Canary marker commit is not imported by source_sha.");
-  return marker.headSha;
-}
-
 async function dispatch(token, args) {
   const channel = required(args, "channel");
   const sourceRef = required(args, "source-ref");
@@ -165,13 +126,11 @@ async function dispatch(token, args) {
   );
   const controlCommit = await controlResponse.json();
   invariant(controlCommit.sha === WORKER_CONTROL_SHA, "Pinned private worker-control ref moved away from its reviewed SHA.");
-  const markerSha = await canaryMarkerSha(token, channel, sourceSha);
-
   const inputNames = [
     "relay-url", "clerk-publishable-key", "clerk-jwt-template", "clerk-cli-oauth-client-id",
     "posthog-key", "posthog-host", "relay-client-otlp-traces-url", "relay-client-otlp-traces-dataset",
     "relay-client-otlp-traces-token", "hosted-router-url", "hosted-latest-domain",
-    "hosted-nightly-domain", "hosted-canary-domain",
+    "hosted-nightly-domain",
   ];
   const inputs = {
     operation: "build-bundle",
@@ -200,7 +159,7 @@ async function dispatch(token, args) {
   );
   const result = await response.json();
   invariant(/^[1-9]\d*$/u.test(String(result.workflow_run_id)), "Dispatch response omitted the exact workflow run ID.");
-  appendFileSync(required(args, "github-output"), `worker_run_id=${result.workflow_run_id}\ncanary_marker_sha=${markerSha ?? "null"}\n`, "utf8");
+  appendFileSync(required(args, "github-output"), `worker_run_id=${result.workflow_run_id}\n`, "utf8");
   process.stdout.write(`Dispatched exact private worker run ${result.workflow_run_id}; private logs will not be retrieved.\n`);
 }
 

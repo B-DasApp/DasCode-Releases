@@ -1,14 +1,14 @@
 # Protected release controller
 
-`B-DasApp/DasCode-Releases` is the public, protected trust anchor for Stable, Nightly, and Canary.
+`B-DasApp/DasCode-Releases` is the public, protected trust anchor for Stable and Nightly.
 The private source repository builds without publication credentials. This repository verifies the
 exact GitHub run and every byte before npm, GitHub Releases, or Vercel receives credentials.
 
-The workflow is intentionally inert on this feature branch. Do not dispatch it until the repository
-and environment controls below are configured.
+The workflow dispatches only from protected public `main` after the repository and environment
+controls below are configured.
 
-Phase 1 is manual for all three channels. Rebinding npm's sole trusted publisher moves Stable,
-Nightly, and Canary together, but this controller does not yet mirror the private Stable tag trigger
+Phase 1 is manual for both channels. Rebinding npm's sole trusted publisher moves Stable and
+Nightly together, but this controller does not yet mirror the private Stable tag trigger
 or daily Nightly schedule. Freeze those legacy publication triggers at cutover and manually dispatch
 the equivalent public request. If automatic cadence is required, design a protected public poller or
 bridge before cutover; do not restore a credential to unprotected private workflow YAML.
@@ -23,8 +23,8 @@ bridge before cutover; do not restore a credential to unprotected private workfl
   run title, first attempt, conclusion, final artifact identity, and REST artifact digest. It never
   retrieves private logs.
 - `production` gates three ordered publication jobs: npm, then a public desktop release, then Vercel.
-  The desktop release contains Windows x64 for all channels and one unsigned, manual-install macOS
-  arm64 DMG for Nightly and Canary. Stable contains no macOS payloads.
+  The desktop release contains Windows x64 for both channels and one unsigned, manual-install macOS
+  arm64 DMG for Nightly. Stable contains no macOS payloads.
   A credential-free job turns the verified npm payload into a frozen canonical artifact and passes
   its SHA-512 separately; the OIDC job verifies that identity. GitHub and Vercel each download the
   full immutable bundle from this controller run and repeat its validation before using it.
@@ -87,8 +87,8 @@ The following public client-build values must be environment or repository varia
 
 These values are embedded in downloadable clients and must not be privileged credentials. If any
 value must remain secret, do not pass it as a workflow-dispatch input; redesign the client protocol.
-Hosted domains are fixed to `code.bclouder.dev`, `latest.code.bclouder.dev`,
-`nightly.code.bclouder.dev`, and `canary.code.bclouder.dev` to prevent a reviewed channel from being
+Hosted domains are fixed to `code.bclouder.dev`, `latest.code.bclouder.dev`, and
+`nightly.code.bclouder.dev` to prevent a reviewed channel from being
 published onto another channel's origin.
 
 ## npm trusted publisher
@@ -106,7 +106,7 @@ The worker rewrites the packed npm metadata to repository URL
 The controller rejects `repository.directory`, `scripts`, registry-bearing `publishConfig`, and
 archived `.npmrc`; the sole allowed publish setting is exact public access.
 It also requires the packed Windows resource monitor in every channel and the Darwin arm64 resource
-monitor in Canary, then rechecks that exact inventory after canonical repacking.
+monitor in Nightly, then rechecks that exact inventory after canonical repacking.
 The controller uses npm `11.16.0`, bundled with pinned Node `24.18.0`, both to canonicalize and to
 publish. Vercel `59.1.3` is installed from the committed integrity lockfile with lifecycle scripts
 disabled, and its compatible `tar` dependency is overridden to patched `7.5.22`. Its upstream package
@@ -127,7 +127,7 @@ branch, while the branch selected in the UI determines the workflow SHA. Therefo
 
 1. Push the reviewed private worker commit and create
    `refs/heads/dascode/release-worker-controller` at that exact SHA. The public controller hardcodes
-   both values and refuses a moved ref. The selected Canary/Nightly/Stable source ref is separate and
+   both values and refuses a moved ref. The selected Nightly/Stable source ref is separate and
    cannot choose the executing workflow YAML.
 2. Configure public branch/environment protections, then merge this controller as
    `.github/workflows/release.yml` to public `main`. A feature-branch copy is not releasable.
@@ -140,22 +140,14 @@ Allowed sources are deliberately channel-bound:
 
 - Stable: exact `refs/tags/vX.Y.Z`; that tag supplies the version.
 - Nightly: exact `refs/heads/dascode/main`.
-- Canary: an approved branch below `refs/heads/dascode/`, excluding `dascode/main`. This permits the
-  integration branch before promotion while the protected public controller and environment review
-  remain the release trust anchor. Its `.canary-source.json` commit must be an ancestor of the source
-  SHA.
 
-If a Stable or Nightly source contains `.canary-source.json`, the controller independently compares
-that marker and rejects the request when the pinned Canary commit is an ancestor. The private worker
-performs the corresponding repository-level channel audit as defense in depth.
-
-Nightly and Canary use the next patch after the latest published Stable GitHub Release, UTC date, and
+Nightly uses the next patch after the latest published Stable GitHub Release, UTC date, and
 controller run number. The request ID binds the controller run/attempt, channel, and source SHA. Rerunning a
 private worker attempt is rejected. For a transient publication failure, rerun only the failed jobs
 in the same controller run so they reuse the verified bundle identity. The authorization job refuses
 workflow run attempts after attempt 1; do not use **Re-run all jobs**.
 
-Nightly and Canary GitHub Releases publish exactly one native arm64 DMG. It is unsigned and
+Nightly GitHub Releases publish exactly one native arm64 DMG. It is unsigned and
 unnotarized, with no Mac ZIP, blockmap, or updater manifest, so macOS auto-update is not advertised.
 Stable publishes no macOS artifacts.
 
@@ -165,8 +157,8 @@ Example after setup (do not run during installation):
 gh workflow run release.yml \
   --repo B-DasApp/DasCode-Releases \
   --ref main \
-  -f channel=canary \
-  -f source_ref=refs/heads/dascode/add-canary-release-channel \
+  -f channel=nightly \
+  -f source_ref=refs/heads/dascode/main \
   -f source_sha=<full-lowercase-commit-sha>
 ```
 
@@ -177,8 +169,8 @@ creates an automation protection-bypass secret, and keeps that secret only in th
 This avoids requiring the release service token to resolve a human Vercel user. Alias verification
 deliberately uses ordinary unauthenticated HTTPS: a release cannot succeed if a user would encounter
 the protection wall. For Stable, the controller attaches
-`latest.code.bclouder.dev` and the router `code.bclouder.dev`; Nightly and Canary update only their
-direct origins. Every alias must serve the same exact identity over valid HTTPS before the job
+`latest.code.bclouder.dev` and the router `code.bclouder.dev`; Nightly updates only its direct
+origin. Every alias must serve the same exact identity over valid HTTPS before the job
 succeeds.
 
 The linked Vercel project uses the monorepo root `apps/web`. For a prebuilt deployment Vercel still
