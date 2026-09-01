@@ -50,7 +50,7 @@ class ArchiveSafetyTests(unittest.TestCase):
     def test_valid_static_web_archive_is_inspected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             archive = Path(directory) / "web.tgz"
-            marker = {"schemaVersion": 1, "channel": "canary", "version": "1.0.0-canary.20260816.1", "sourceSha": "a" * 40}
+            marker = {"schemaVersion": 1, "channel": "nightly", "version": "1.0.0-nightly.20260816.1", "sourceSha": "a" * 40}
             with tarfile.open(archive, "w:gz") as output:
                 for name, content in (
                     (".vercel/output/config.json", b'{"version":3}'),

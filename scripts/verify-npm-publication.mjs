@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-const supportedDistTags = new Set(["latest", "nightly", "canary"]);
+const supportedDistTags = new Set(["latest", "nightly"]);
 
 function numericComponents(version, distTag) {
   if (!supportedDistTags.has(distTag)) {

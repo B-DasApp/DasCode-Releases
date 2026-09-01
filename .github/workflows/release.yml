@@ -11,7 +11,6 @@ on:
         options:
           - stable
           - nightly
-          - canary
       source_ref:
         description: Full private-source ref (refs/heads/... or refs/tags/...)
         required: true
@@ -89,7 +88,6 @@ jobs:
     outputs:
       worker_run_id: ${{ steps.dispatch.outputs.worker_run_id }}
       worker_run_attempt: ${{ steps.download.outputs.worker_run_attempt }}
-      canary_marker_sha: ${{ steps.dispatch.outputs.canary_marker_sha }}
       bundle_name: verified-release-bundle-${{ needs.authorize.outputs.request_id }}
       controller_run_attempt: ${{ needs.authorize.outputs.controller_run_attempt }}
     env:
@@ -105,7 +103,6 @@ jobs:
       DASCODE_WEB_ROUTER_URL: https://code.bclouder.dev
       DASCODE_WEB_LATEST_DOMAIN: latest.code.bclouder.dev
       DASCODE_WEB_NIGHTLY_DOMAIN: nightly.code.bclouder.dev
-      DASCODE_WEB_CANARY_DOMAIN: canary.code.bclouder.dev
     steps:
       - name: Refuse a rerun of the acquisition boundary
         env:
@@ -160,7 +157,6 @@ jobs:
             --hosted-router-url "$DASCODE_WEB_ROUTER_URL" \
             --hosted-latest-domain "$DASCODE_WEB_LATEST_DOMAIN" \
             --hosted-nightly-domain "$DASCODE_WEB_NIGHTLY_DOMAIN" \
-            --hosted-canary-domain "$DASCODE_WEB_CANARY_DOMAIN" \
             --github-output "$GITHUB_OUTPUT"
 
       - id: wait-token-1
@@ -241,7 +237,7 @@ jobs:
         run: python3 scripts/safe-extract-zip.py "$RUNNER_TEMP/release-bundle.zip" "$RUNNER_TEMP/release-bundle"
 
       - name: Verify manifest, checksums, updater manifests, npm and static web payload
-        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.authorize.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --canary-marker-sha "${{ steps.dispatch.outputs.canary_marker_sha }}"
+        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.authorize.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA"
 
       - name: Upload only the verified publication bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -274,7 +270,7 @@ jobs:
           name: ${{ needs.acquire.outputs.bundle_name }}
           path: ${{ runner.temp }}/release-bundle
       - id: bundle
-        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --canary-marker-sha "${{ needs.acquire.outputs.canary_marker_sha }}" --github-output "$GITHUB_OUTPUT"
+        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --github-output "$GITHUB_OUTPUT"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24.18.0
@@ -377,7 +373,7 @@ jobs:
           name: ${{ needs.acquire.outputs.bundle_name }}
           path: ${{ runner.temp }}/release-bundle
       - id: bundle
-        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --canary-marker-sha "${{ needs.acquire.outputs.canary_marker_sha }}" --github-output "$GITHUB_OUTPUT"
+        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --github-output "$GITHUB_OUTPUT"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24.18.0
@@ -420,7 +416,7 @@ jobs:
           name: ${{ needs.acquire.outputs.bundle_name }}
           path: ${{ runner.temp }}/release-bundle
       - id: bundle
-        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --canary-marker-sha "${{ needs.acquire.outputs.canary_marker_sha }}" --github-output "$GITHUB_OUTPUT"
+        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --github-output "$GITHUB_OUTPUT"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24.18.0

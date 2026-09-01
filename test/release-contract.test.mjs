@@ -16,20 +16,19 @@ import {
 } from "../scripts/lib/release-contract.mjs";
 
 const sourceSha = "a".repeat(40);
-const markerSha = "b".repeat(40);
-const version = "0.0.33-canary.20260816.90";
+const version = "0.0.33-nightly.20260816.90";
 const installerSha512 = `${"A".repeat(86)}==`;
 function manifest() {
   return {
     schemaVersion: 2,
-    requestId: "dcr-123-1-canary-aaaaaaaaaaaa",
-    channel: "canary",
+    requestId: "dcr-123-1-nightly-aaaaaaaaaaaa",
+    channel: "nightly",
     source: {
       repository: "B-DasApp/DasCode",
       repositoryId: "1178338180",
-      ref: "refs/heads/dascode/add-canary-release-channel",
+      ref: "refs/heads/dascode/main",
       sha: sourceSha,
-      markerSha,
+      markerSha: null,
       workflow: {
         id: "244380781",
         path: ".github/workflows/release.yml",
@@ -52,17 +51,17 @@ function manifest() {
     release: {
       version,
       tag: `v${version}`,
-      npmDistTag: "canary",
+      npmDistTag: "nightly",
       prerelease: true,
       makeLatest: false,
-      hostedDomain: "canary.code.bclouder.dev",
+      hostedDomain: "nightly.code.bclouder.dev",
     },
     createdAt: "2026-08-16T12:00:00Z",
     files: [
       { path: "desktop/DasCode.exe", sha256: "1".repeat(64), sha512: installerSha512, size: 10, mediaType: "application/octet-stream", role: "desktop-installer" },
-      { path: "desktop/canary.yml", sha256: "2".repeat(64), size: 11, mediaType: "text/yaml", role: "desktop-updater-manifest" },
+      { path: "desktop/nightly.yml", sha256: "2".repeat(64), size: 11, mediaType: "text/yaml", role: "desktop-updater-manifest" },
       { path: "desktop/DasCode.exe.blockmap", sha256: "3".repeat(64), size: 12, mediaType: "application/octet-stream", role: "desktop-blockmap" },
-      { path: `desktop/DasCode-Canary-${version}-arm64.dmg`, sha256: "6".repeat(64), size: 16, mediaType: "application/x-apple-diskimage", role: "desktop-macos-dmg" },
+      { path: `desktop/DasCode-${version}-arm64.dmg`, sha256: "6".repeat(64), size: 16, mediaType: "application/x-apple-diskimage", role: "desktop-macos-dmg" },
       { path: "npm/dascode.tgz", sha256: "4".repeat(64), size: 13, mediaType: "application/gzip", role: "npm-package" },
       { path: "web/vercel-prebuilt.tgz", sha256: "5".repeat(64), size: 14, mediaType: "application/gzip", role: "web-prebuilt" },
     ],
@@ -70,11 +69,11 @@ function manifest() {
 }
 
 const expected = {
-  requestId: "dcr-123-1-canary-aaaaaaaaaaaa",
-  channel: "canary",
-  sourceRef: "refs/heads/dascode/add-canary-release-channel",
+  requestId: "dcr-123-1-nightly-aaaaaaaaaaaa",
+  channel: "nightly",
+  sourceRef: "refs/heads/dascode/main",
   sourceSha,
-  canaryMarkerSha: markerSha,
+  markerSha: null,
   version,
   workerRunId: "456",
   workerRunAttempt: 1,
@@ -86,13 +85,12 @@ const expected = {
 test("resolves channel-bound versions from public stable tags", () => {
   assert.equal(resolveReleaseVersion({ channel: "stable", sourceRef: "refs/tags/v1.2.3", runNumber: "9", now: "2026-08-16T00:00:00Z" }), "1.2.3");
   assert.equal(resolveReleaseVersion({ channel: "nightly", sourceRef: "refs/heads/dascode/main", runNumber: "9", now: "2026-08-16T00:00:00Z", latestStableTag: "v1.10.2" }), "1.10.3-nightly.20260816.9");
-  assert.equal(resolveReleaseVersion({ channel: "canary", sourceRef: "refs/heads/dascode/add-canary-release-channel", runNumber: "9", now: "2026-08-16T00:00:00Z", latestStableTag: "v1.2.3" }), "1.2.4-canary.20260816.9");
-  assert.throws(() => resolveReleaseVersion({ channel: "canary", sourceRef: "refs/heads/dascode/main", runNumber: "9", now: "2026-08-16T00:00:00Z", latestStableTag: "v1.2.3" }), /Nightly source branch/);
-  assert.throws(() => resolveReleaseVersion({ channel: "canary", sourceRef: "refs/heads/dascode/feature", runNumber: "9", now: "2026-08-16T00:00:00Z", latestStableTag: "v1.2.3-nightly.1" }), /latest published Stable/);
+  assert.throws(() => resolveReleaseVersion({ channel: "canary", sourceRef: "refs/heads/dascode/feature", runNumber: "9", now: "2026-08-16T00:00:00Z", latestStableTag: "v1.2.3" }), /Unsupported channel/);
+  assert.throws(() => resolveReleaseVersion({ channel: "nightly", sourceRef: "refs/heads/dascode/feature", runNumber: "9", now: "2026-08-16T00:00:00Z", latestStableTag: "v1.2.3" }), /refs\/heads\/dascode\/main/);
 });
 
 test("validates the exact cross-repository manifest identity", () => {
-  assert.equal(validateManifest(manifest(), expected).release.npmDistTag, "canary");
+  assert.equal(validateManifest(manifest(), expected).release.npmDistTag, "nightly");
   const wrong = manifest();
   wrong.release.npmDistTag = "latest";
   assert.throws(() => validateManifest(wrong, expected), /crosses release channels/);
@@ -103,7 +101,7 @@ test("validates the exact cross-repository manifest identity", () => {
 
   const wrongMacArchitecture = manifest();
   wrongMacArchitecture.files.find((file) => file.role === "desktop-macos-dmg").path =
-    `desktop/DasCode-Canary-${version}-x64.dmg`;
+    `desktop/DasCode-${version}-x64.dmg`;
   assert.throws(
     () => validateManifest(wrongMacArchitecture, expected),
     /exact channel version and arm64 architecture/,
@@ -132,7 +130,7 @@ test("keeps Stable on the Windows-only desktop contract", () => {
     requestId: value.requestId,
     channel: "stable",
     sourceRef: value.source.ref,
-    canaryMarkerSha: null,
+    markerSha: null,
     version: value.release.version,
   };
 
@@ -162,7 +160,7 @@ test("requires exactly one manual-install arm64 DMG for Nightly", () => {
     requestId: value.requestId,
     channel: "nightly",
     sourceRef: value.source.ref,
-    canaryMarkerSha: null,
+    markerSha: null,
     version: value.release.version,
   };
 
@@ -209,7 +207,7 @@ test("SHA256SUMS includes the manifest and rejects duplicates", () => {
 });
 
 test("request IDs bind run attempt, channel and source", () => {
-  assert.equal(buildRequestId({ runId: "123", runAttempt: "2", channel: "canary", sourceSha }), "dcr-123-2-canary-aaaaaaaaaaaa");
+  assert.equal(buildRequestId({ runId: "123", runAttempt: "2", channel: "nightly", sourceSha }), "dcr-123-2-nightly-aaaaaaaaaaaa");
 });
 
 test("maps release asset paths without forwarding array indexes as basename suffixes", () => {
@@ -217,13 +215,13 @@ test("maps release asset paths without forwarding array indexes as basename suff
     releaseAssetNames([
       "/release/DasCode.exe",
       "/release/DasCode.exe.blockmap",
-      "/release/canary.yml",
+      "/release/nightly.yml",
     ]),
-    ["DasCode.exe", "DasCode.exe.blockmap", "canary.yml"],
+    ["DasCode.exe", "DasCode.exe.blockmap", "nightly.yml"],
   );
 });
 
-test("publishes the complete Canary desktop set with one arm64 DMG in deterministic order", () => {
+test("publishes the complete Nightly desktop set with one arm64 DMG in deterministic order", () => {
   const names = releaseAssetNames(releaseAssetPaths("/release", manifest()));
   assert.equal(names.length, 6);
   assert.equal(new Set(names.map((name) => name.toLowerCase())).size, names.length);
@@ -235,11 +233,11 @@ test("publishes the complete Canary desktop set with one arm64 DMG in determinis
     .map((name, index) => (name.endsWith(".blockmap") ? index : -1))
     .filter((index) => index >= 0);
   const metadataIndexes = [names.indexOf("SHA256SUMS"), names.indexOf("release-manifest.json")];
-  const updaterIndexes = [names.indexOf("canary.yml")];
+  const updaterIndexes = [names.indexOf("nightly.yml")];
   assert.ok(Math.max(...payloadIndexes) < Math.min(...blockmapIndexes));
   assert.ok(Math.max(...blockmapIndexes) < Math.min(...metadataIndexes));
   assert.ok(Math.max(...metadataIndexes) < Math.min(...updaterIndexes));
-  assert.equal(names.at(-1), "canary.yml");
+  assert.equal(names.at(-1), "nightly.yml");
 
   const unknownRole = manifest();
   unknownRole.files.find((file) => file.role === "desktop-installer").role =
@@ -256,7 +254,6 @@ test("requires the exact reviewed Vercel channel router", () => {
   const config = {
     version: 3,
     routes: [
-      { src: "/__dascode/channel", has: [{ type: "query", key: "channel", value: "canary" }], headers: { Location: "https://canary.code.bclouder.dev" }, status: 302 },
       { src: "/__dascode/channel", has: [{ type: "query", key: "channel", value: "nightly" }], headers: { Location: "/", "Set-Cookie": cookie("nightly") }, status: 302 },
       { src: "/__dascode/channel", headers: { Location: "/", "Set-Cookie": cookie("latest") }, status: 302 },
       { src: "/(.*)", has: [{ type: "host", value: "code.bclouder.dev" }, { type: "cookie", key: "dascode_web_channel", value: "nightly" }], dest: "https://nightly.code.bclouder.dev/$1" },
@@ -267,6 +264,6 @@ test("requires the exact reviewed Vercel channel router", () => {
   };
   assert.doesNotThrow(() => validateWebConfig(config));
   const malicious = structuredClone(config);
-  malicious.routes[4].dest = "https://canary.code.bclouder.dev/$1";
+  malicious.routes[3].dest = "https://example.invalid/$1";
   assert.throws(() => validateWebConfig(malicious), /channel-isolated routes/);
 });

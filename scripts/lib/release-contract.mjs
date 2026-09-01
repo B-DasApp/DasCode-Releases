@@ -12,7 +12,7 @@ export const WORKER_WORKFLOW_PATH = ".github/workflows/release.yml";
 export const WORKER_IMPLEMENTATION_PATH = ".github/workflows/release-worker.yml";
 export const WORKER_WORKFLOW_ID = "244380781";
 export const WORKER_CONTROL_REF = "refs/heads/dascode/release-worker-controller";
-export const WORKER_CONTROL_SHA = "cd84be35342b787b0921a491c4a3ab597bca2dce";
+export const WORKER_CONTROL_SHA = "d0c1c655b44bb55ec78c4c529086df1292b90d14";
 export const NPM_PACKAGE_NAME = "@das-org/dascode";
 export const NPM_REPOSITORY_URL =
   "git+https://github.com/B-DasApp/DasCode-Releases.git";
@@ -90,7 +90,7 @@ function compareVersions(left, right) {
 }
 
 export function resolveReleaseVersion({ channel, sourceRef, runNumber, now, latestStableTag }) {
-  invariant(["stable", "nightly", "canary"].includes(channel), `Unsupported channel: ${channel}.`);
+  invariant(["stable", "nightly"].includes(channel), `Unsupported channel: ${channel}.`);
   validateFullGitRef(sourceRef);
 
   if (channel === "stable") {
@@ -99,15 +99,7 @@ export function resolveReleaseVersion({ channel, sourceRef, runNumber, now, late
     return match[1];
   }
 
-  if (channel === "nightly") {
-    invariant(sourceRef === "refs/heads/dascode/main", "Nightly releases require refs/heads/dascode/main.");
-  } else {
-    invariant(
-      /^refs\/heads\/dascode\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(sourceRef),
-      "Canary releases require a branch below refs/heads/dascode/.",
-    );
-    invariant(sourceRef !== "refs/heads/dascode/main", "Canary releases cannot use the Nightly source branch.");
-  }
+  invariant(sourceRef === "refs/heads/dascode/main", "Nightly releases require refs/heads/dascode/main.");
 
   const stableVersion = parseStableVersionTag(latestStableTag);
   invariant(stableVersion, "The latest published Stable release must use a vX.Y.Z tag.");
@@ -203,7 +195,8 @@ export function validateManifest(manifest, expected) {
   invariant(String(manifest.source.repositoryId) === SOURCE_REPOSITORY_ID, "Manifest source repository ID mismatch.");
   invariant(manifest.source.ref === expected.sourceRef, "Manifest source ref mismatch.");
   invariant(manifest.source.sha === expected.sourceSha && shaPattern.test(manifest.source.sha), "Manifest source SHA mismatch.");
-  invariant(manifest.source.markerSha === expected.canaryMarkerSha, "Manifest Canary marker SHA mismatch.");
+  invariant(manifest.source.markerSha === expected.markerSha, "Manifest source marker SHA mismatch.");
+  invariant(manifest.source.markerSha === null, "Stable and Nightly manifests cannot carry a source marker SHA.");
   exactKeys(
     manifest.source.workflow,
     ["id", "path", "ref", "sha", "implementationPath", "implementationSha", "runId", "runAttempt", "headSha"],
@@ -270,9 +263,7 @@ export function validateManifest(manifest, expected) {
       const expectedDmgPath =
         manifest.channel === "nightly"
           ? `desktop/DasCode-${manifest.release.version}-arm64.dmg`
-          : manifest.channel === "canary"
-            ? `desktop/DasCode-Canary-${manifest.release.version}-arm64.dmg`
-            : undefined;
+          : undefined;
       invariant(
         expectedDmgPath !== undefined && file.path === expectedDmgPath,
         "macOS DMG path does not match the exact channel version and arm64 architecture.",
@@ -457,7 +448,7 @@ export function validateNpmArchive(path, expectedVersion) {
   invariant(isRecord(inspected.resourceMonitors), "npm resource-monitor inventory is invalid.");
   const expectedResourceMonitors = [
     "package/dist/resource-monitor/win32-x64/dascode-resource-monitor.exe",
-    ...(/-canary\.\d{8}\.\d+$/u.test(expectedVersion)
+    ...(/-nightly\.\d{8}\.\d+$/u.test(expectedVersion)
       ? ["package/dist/resource-monitor/darwin-arm64/dascode-resource-monitor"]
       : []),
   ];
@@ -483,12 +474,6 @@ const channelCookie = (channel) =>
 const expectedWebConfig = {
   version: 3,
   routes: [
-    {
-      src: "/__dascode/channel",
-      has: [{ type: "query", key: "channel", value: "canary" }],
-      headers: { Location: "https://canary.code.bclouder.dev" },
-      status: 302,
-    },
     {
       src: "/__dascode/channel",
       has: [{ type: "query", key: "channel", value: "nightly" }],

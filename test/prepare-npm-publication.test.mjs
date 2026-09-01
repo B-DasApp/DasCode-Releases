@@ -25,7 +25,7 @@ test("safely repacks a worker archive into deterministic npm-owned bytes", () =>
     join(packageDir, "package.json"),
     JSON.stringify({
       name: "@das-org/dascode",
-      version: "1.2.4-canary.20260816.9",
+      version: "1.2.4-nightly.20260816.9",
       repository: {
         type: "git",
         url: "git+https://github.com/B-DasApp/DasCode-Releases.git",
@@ -48,19 +48,19 @@ test("safely repacks a worker archive into deterministic npm-owned bytes", () =>
 
   const first = prepareNpmPublication({
     archivePath: archive,
-    version: "1.2.4-canary.20260816.9",
+    version: "1.2.4-nightly.20260816.9",
     outputDir: join(root, "first"),
   });
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_100);
   const second = prepareNpmPublication({
     archivePath: archive,
-    version: "1.2.4-canary.20260816.9",
+    version: "1.2.4-nightly.20260816.9",
     outputDir: join(root, "second"),
   });
   assert.equal(digest(first), digest(second));
 });
 
-test("rejects a Canary package containing a non-executable Darwin resource monitor", () => {
+test("rejects a Nightly package containing a non-executable Darwin resource monitor", () => {
   const root = mkdtempSync(join(tmpdir(), "dascode-canonical-npm-monitor-"));
   const packageDir = join(root, "source", "package");
   mkdirSync(join(packageDir, "dist", "resource-monitor", "win32-x64"), { recursive: true });
@@ -69,7 +69,7 @@ test("rejects a Canary package containing a non-executable Darwin resource monit
     join(packageDir, "package.json"),
     JSON.stringify({
       name: "@das-org/dascode",
-      version: "1.2.4-canary.20260816.9",
+      version: "1.2.4-nightly.20260816.9",
       repository: {
         type: "git",
         url: "git+https://github.com/B-DasApp/DasCode-Releases.git",
@@ -91,7 +91,7 @@ test("rejects a Canary package containing a non-executable Darwin resource monit
     () =>
       prepareNpmPublication({
         archivePath: archive,
-        version: "1.2.4-canary.20260816.9",
+        version: "1.2.4-nightly.20260816.9",
         outputDir: join(root, "output"),
       }),
     /Darwin resource monitors must be executable/,

@@ -17,9 +17,9 @@ test("compares Stable versions without lexical ordering mistakes", () => {
 test("orders prereleases by base version, UTC date, and controller run", () => {
   assert.ok(
     comparePublicationVersions(
-      "1.2.4-canary.20260817.1",
-      "1.2.4-canary.20260816.99",
-      "canary",
+      "1.2.4-nightly.20260817.1",
+      "1.2.4-nightly.20260816.99",
+      "nightly",
     ) > 0,
   );
   assert.ok(

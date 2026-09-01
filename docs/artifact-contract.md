@@ -12,16 +12,15 @@ artifacts may coexist; the controller selects only one exact, case-sensitive fin
 non-expired artifact ID and `sha256:` REST digest, and downloads it with a freshly minted App token.
 
 The ZIP has this top-level structure and no unlisted files or links. Stable contains exactly five
-payloads. Nightly and Canary contain six because each adds one native macOS arm64 DMG:
+payloads. Nightly contains six because it adds one native macOS arm64 DMG:
 
 ```text
 release-manifest.json
 SHA256SUMS
 desktop/<Windows x64 installer>.exe
 desktop/<Windows x64 installer>.exe.blockmap
-desktop/latest.yml | nightly.yml | canary.yml
+desktop/latest.yml | nightly.yml
 desktop/DasCode-<nightly-version>-arm64.dmg                # Nightly only
-desktop/DasCode-Canary-<canary-version>-arm64.dmg          # Canary only
 npm/<package>.tgz
 web/vercel-prebuilt.tgz
 ```
@@ -33,13 +32,13 @@ for itself), using two spaces before the relative path. The JSON manifest uses s
 {
   "schemaVersion": 2,
   "requestId": "dcr-<controller-run>-<attempt>-<channel>-<short-sha>",
-  "channel": "canary",
+  "channel": "nightly",
   "source": {
     "repository": "B-DasApp/DasCode",
     "repositoryId": "1178338180",
-    "ref": "refs/heads/dascode/add-canary-release-channel",
+    "ref": "refs/heads/dascode/main",
     "sha": "<40 hex>",
-    "markerSha": "<40 hex or null>",
+    "markerSha": null,
     "workflow": {
       "id": "244380781",
       "path": ".github/workflows/release.yml",
@@ -60,12 +59,12 @@ for itself), using two spaces before the relative path. The JSON manifest uses s
     "runAttempt": 1
   },
   "release": {
-    "version": "0.0.33-canary.20260816.90",
-    "tag": "v0.0.33-canary.20260816.90",
-    "npmDistTag": "canary",
+    "version": "0.0.33-nightly.20260816.90",
+    "tag": "v0.0.33-nightly.20260816.90",
+    "npmDistTag": "nightly",
     "prerelease": true,
     "makeLatest": false,
-    "hostedDomain": "canary.code.bclouder.dev"
+    "hostedDomain": "nightly.code.bclouder.dev"
   },
   "createdAt": "2026-08-16T12:00:00Z",
   "files": [
@@ -83,7 +82,7 @@ for itself), using two spaces before the relative path. The JSON manifest uses s
 
 Every payload has `path`, `sha256`, positive byte `size`, `mediaType`, and exactly one recognized
 role. The roles are `desktop-installer`, `desktop-updater-manifest`, `desktop-blockmap`,
-`desktop-macos-dmg`, `npm-package`, and `web-prebuilt`. Nightly and Canary each have exactly one
+`desktop-macos-dmg`, `npm-package`, and `web-prebuilt`. Nightly has exactly one
 `desktop-macos-dmg` entry for arm64; Stable has none. The Windows installer has base64
 `sha512`. The manual-install DMG deliberately does not carry updater SHA-512 metadata.
 
@@ -93,7 +92,7 @@ There is no macOS updater manifest, ZIP, or blockmap. Case-colliding or addition
 
 The GitHub publisher uploads installers first, then the Windows blockmap, then `SHA256SUMS` and the
 JSON manifest, and the Windows updater YAML last. This prevents that updater manifest from becoming
-visible before its payload. The Nightly and Canary arm64 DMGs are unsigned and manual-install-only. Apple signing,
+visible before its payload. The Nightly arm64 DMG is unsigned and manual-install-only. Apple signing,
 notarization, and macOS auto-update are separate future release-policy changes, not implicit
 properties of this contract.
 
@@ -110,7 +109,7 @@ allowed `publishConfig` is exactly `{ "access": "public" }`:
 }
 ```
 
-Every npm archive must contain the non-empty Windows x64 resource monitor. Canary must additionally
+Every npm archive must contain the non-empty Windows x64 resource monitor. Nightly must additionally
 contain the executable Darwin arm64 resource monitor, with no other monitor paths. The controller
 verifies this inventory before and after canonical npm repacking.
 
@@ -125,7 +124,7 @@ The prebuilt web tarball is rooted at `.vercel/output`, has Build Output API `co
 and may contain only `static/**`. It cannot contain functions, middleware, source maps, environment
 files, links, devices, `.vercel/project.json`, or another root. The worker adds
 `.vercel/output/static/__dascode/release.json` with exact schema/channel/version/source SHA. The
-controller requires `config.json` to equal the reviewed five channel/router routes followed by the
+controller requires `config.json` to equal the reviewed four channel/router routes followed by the
 filesystem handler and SPA fallback, with no extra headers, rewrites, or keys. It creates
 `.vercel/project.json` locally from the protected production environment and never runs
 `vercel build` or source configuration code.

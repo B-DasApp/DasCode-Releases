@@ -40,7 +40,7 @@ async function main() {
     controllerRunId: required(args, "controller-run-id"),
     controllerRunAttempt: required(args, "controller-run-attempt"),
     controllerWorkflowSha: required(args, "controller-workflow-sha"),
-    canaryMarkerSha: required(args, "canary-marker-sha") === "null" ? null : required(args, "canary-marker-sha"),
+    markerSha: null,
   });
   const npmPath = filesForRoles(manifest, ["npm-package"])[0];
   const webPath = filesForRoles(manifest, ["web-prebuilt"])[0];
