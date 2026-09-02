@@ -12,7 +12,7 @@ export const WORKER_WORKFLOW_PATH = ".github/workflows/release.yml";
 export const WORKER_IMPLEMENTATION_PATH = ".github/workflows/release-worker.yml";
 export const WORKER_WORKFLOW_ID = "244380781";
 export const WORKER_CONTROL_REF = "refs/heads/dascode/release-worker-controller";
-export const WORKER_CONTROL_SHA = "d0c1c655b44bb55ec78c4c529086df1292b90d14";
+export const WORKER_CONTROL_SHA = "e686cc8b35458e99bae4885e34424466cdbdff79";
 export const NPM_PACKAGE_NAME = "@das-org/dascode";
 export const NPM_REPOSITORY_URL =
   "git+https://github.com/B-DasApp/DasCode-Releases.git";
