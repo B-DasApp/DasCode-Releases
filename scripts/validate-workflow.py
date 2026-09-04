@@ -8,17 +8,21 @@ import re
 from pathlib import Path
 
 WORKFLOW = Path(".github/workflows/release.yml")
+CI_WORKFLOW = Path(".github/workflows/ci.yml")
 SHA_PIN = re.compile(r"^\s*uses:\s*[^\s]+@[0-9a-f]{40}(?:\s*#.*)?$")
 
 
 def main() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
+    ci_text = CI_WORKFLOW.read_text(encoding="utf-8")
     worker_text = Path("scripts/worker-client.mjs").read_text(encoding="utf-8")
     request_text = Path("scripts/validate-request.mjs").read_text(encoding="utf-8")
     publisher_text = Path("scripts/publish-github-release.mjs").read_text(encoding="utf-8")
     contract_text = Path("scripts/lib/release-contract.mjs").read_text(encoding="utf-8")
     if "\t" in text or not text.startswith("name:"):
         raise SystemExit("workflow must use a conventional dependency-free YAML form")
+    if any("blacksmith-" in workflow for workflow in (text, ci_text)):
+        raise SystemExit("public controller workflows must use free GitHub-hosted runners")
     uses_lines = [line for line in text.splitlines() if re.match(r"^\s*uses:", line)]
     if not uses_lines or any(not SHA_PIN.match(line) for line in uses_lines):
         raise SystemExit("every action must be pinned to a full immutable SHA")
