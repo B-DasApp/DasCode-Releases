@@ -32,7 +32,7 @@ jobs:
   authorize:
     name: Authorize immutable request
     if: github.event_name == 'workflow_dispatch'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       request_id: ${{ steps.request.outputs.request_id }}
@@ -82,7 +82,7 @@ jobs:
     name: Acquire verified private build
     needs: authorize
     if: needs.authorize.result == 'success'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 235
     environment: source-reader
     outputs:
@@ -252,7 +252,7 @@ jobs:
     name: Canonicalize npm package without credentials
     needs: [authorize, acquire]
     if: needs.acquire.result == 'success'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
       artifact_name: ${{ steps.canonical.outputs.artifact_name }}
@@ -357,7 +357,7 @@ jobs:
     name: Publish public desktop release
     needs: [authorize, acquire, publish-npm]
     if: needs.acquire.result == 'success' && needs.publish-npm.result == 'success'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: production
     permissions:
@@ -400,7 +400,7 @@ jobs:
     name: Deploy prebuilt static web release
     needs: [authorize, acquire, publish-github]
     if: needs.acquire.result == 'success' && needs.publish-github.result == 'success'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: production
     permissions:
