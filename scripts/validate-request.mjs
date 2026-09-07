@@ -108,6 +108,7 @@ async function main() {
   const outputs = {
     request_id: requestId,
     channel: request.channel,
+    desktop_targets: request.desktopTargets,
     source_ref: request.sourceRef,
     source_sha: request.sourceSha,
     version: request.version,

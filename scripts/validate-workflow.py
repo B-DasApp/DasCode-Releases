@@ -48,6 +48,7 @@ def main() -> None:
         'ref !== "refs/heads/main"',
         'refProtected !== "true"',
         "expectedWorkflowRef",
+        "desktop_targets: request.desktopTargets",
     ):
         if marker not in request_text:
             raise SystemExit(f"request validator is missing policy marker: {marker}")
