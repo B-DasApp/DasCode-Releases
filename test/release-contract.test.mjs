@@ -20,7 +20,7 @@ const version = "0.0.33-nightly.20260816.90";
 const installerSha512 = `${"A".repeat(86)}==`;
 function manifest() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     requestId: "dcr-123-1-nightly-aaaaaaaaaaaa",
     channel: "nightly",
     source: {
@@ -55,6 +55,7 @@ function manifest() {
       prerelease: true,
       makeLatest: false,
       hostedDomain: "nightly.code.bclouder.dev",
+      desktopTargets: "windows-macos",
     },
     createdAt: "2026-08-16T12:00:00Z",
     files: [
@@ -71,6 +72,7 @@ function manifest() {
 const expected = {
   requestId: "dcr-123-1-nightly-aaaaaaaaaaaa",
   channel: "nightly",
+  desktopTargets: "windows-macos",
   sourceRef: "refs/heads/dascode/main",
   sourceSha,
   markerSha: null,
@@ -121,6 +123,7 @@ test("keeps Stable on the Windows-only desktop contract", () => {
     prerelease: false,
     makeLatest: true,
     hostedDomain: "latest.code.bclouder.dev",
+    desktopTargets: "windows",
   };
   value.files.find((file) => file.role === "desktop-updater-manifest").path =
     "desktop/latest.yml";
@@ -129,6 +132,7 @@ test("keeps Stable on the Windows-only desktop contract", () => {
     ...expected,
     requestId: value.requestId,
     channel: "stable",
+    desktopTargets: "windows",
     sourceRef: value.source.ref,
     markerSha: null,
     version: value.release.version,
@@ -150,6 +154,7 @@ test("requires exactly one manual-install arm64 DMG for Nightly", () => {
     prerelease: true,
     makeLatest: false,
     hostedDomain: "nightly.code.bclouder.dev",
+    desktopTargets: "windows-macos",
   };
   value.files.find((file) => file.role === "desktop-updater-manifest").path =
     "desktop/nightly.yml";
@@ -159,6 +164,7 @@ test("requires exactly one manual-install arm64 DMG for Nightly", () => {
     ...expected,
     requestId: value.requestId,
     channel: "nightly",
+    desktopTargets: "windows-macos",
     sourceRef: value.source.ref,
     markerSha: null,
     version: value.release.version,
@@ -185,6 +191,19 @@ test("requires exactly one manual-install arm64 DMG for Nightly", () => {
   const names = releaseAssetNames(releaseAssetPaths("/release", value));
   assert.equal(names.length, 6);
   assert.ok(names.indexOf(`DasCode-${value.release.version}-arm64.dmg`) < names.indexOf("nightly.yml"));
+});
+
+test("keeps Windows-only Nightly bundles free of macOS release files", () => {
+  const value = manifest();
+  value.release.desktopTargets = "windows";
+  value.files = value.files.filter((file) => file.role !== "desktop-macos-dmg");
+  const windowsExpected = { ...expected, desktopTargets: "windows" };
+
+  assert.equal(validateManifest(value, windowsExpected).files.length, 5);
+
+  const includesMacos = structuredClone(value);
+  includesMacos.files.push(manifest().files.find((file) => file.role === "desktop-macos-dmg"));
+  assert.throws(() => validateManifest(includesMacos, windowsExpected), /files count is invalid/);
 });
 
 test("requires npm trusted-publisher metadata and no lifecycle scripts", () => {

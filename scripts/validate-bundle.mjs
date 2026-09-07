@@ -32,6 +32,7 @@ async function main() {
   const manifest = await validateBundleDirectory(root, {
     requestId: required(args, "request-id"),
     channel: required(args, "channel"),
+    desktopTargets: required(args, "desktop-targets"),
     sourceRef: required(args, "source-ref"),
     sourceSha: required(args, "source-sha"),
     version: required(args, "version"),

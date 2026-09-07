@@ -76,9 +76,11 @@ def main() -> None:
         raise SystemExit("GitHub release metadata must not replace exact Git ref verification")
     for marker in (
         "desktop-macos-dmg",
-        'expectedFileCount = manifest.channel === "stable" ? 5 : 6',
-        'manifest.channel === "stable" ? 0 : 1',
+        'const includesMacos = manifest.release.desktopTargets === "windows-macos";',
+        "const expectedFileCount = 5 + Number(includesMacos);",
+        '["desktop-macos-dmg", includesMacos ? 1 : 0]',
         'desktop/DasCode-${manifest.release.version}-arm64.dmg',
+        'expectedDesktopTargets === "windows-macos"',
         "package/dist/resource-monitor/darwin-arm64/dascode-resource-monitor",
     ):
         if marker not in contract_text:

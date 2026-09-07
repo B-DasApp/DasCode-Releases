@@ -89,6 +89,7 @@ async function main() {
   const channel = required(args, "channel");
   const request = validateReleaseRequest({
     channel,
+    desktopTargets: required(args, "desktop-targets"),
     sourceRef: required(args, "source-ref"),
     sourceSha: required(args, "source-sha"),
     runNumber: required(args, "controller-run-number"),
@@ -100,6 +101,7 @@ async function main() {
     runId,
     runAttempt,
     channel: request.channel,
+    desktop_targets: request.desktopTargets,
     sourceSha: request.sourceSha,
   });
   const outputPath = required(args, "github-output");

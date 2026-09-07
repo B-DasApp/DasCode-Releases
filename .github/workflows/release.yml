@@ -1,5 +1,5 @@
 name: Release controller
-run-name: release-controller / ${{ inputs.channel }} / ${{ inputs.source_sha }}
+run-name: release-controller / ${{ inputs.channel }} / ${{ inputs.desktop_targets }} / ${{ inputs.source_sha }}
 
 on:
   workflow_dispatch:
@@ -11,6 +11,14 @@ on:
         options:
           - stable
           - nightly
+      desktop_targets:
+        description: Desktop binary targets; Windows-only by default, or include macOS
+        required: true
+        default: windows
+        type: choice
+        options:
+          - windows
+          - windows-macos
       source_ref:
         description: Full private-source ref (refs/heads/... or refs/tags/...)
         required: true
@@ -37,6 +45,7 @@ jobs:
     outputs:
       request_id: ${{ steps.request.outputs.request_id }}
       channel: ${{ steps.request.outputs.channel }}
+      desktop_targets: ${{ steps.request.outputs.desktop_targets }}
       source_ref: ${{ steps.request.outputs.source_ref }}
       source_sha: ${{ steps.request.outputs.source_sha }}
       version: ${{ steps.request.outputs.version }}
@@ -56,6 +65,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           INPUT_CHANNEL: ${{ inputs.channel }}
+          INPUT_DESKTOP_TARGETS: ${{ inputs.desktop_targets }}
           INPUT_SOURCE_REF: ${{ inputs.source_ref }}
           INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
@@ -73,6 +83,7 @@ jobs:
             --event "$GITHUB_EVENT_NAME" \
             --default-branch "${{ github.event.repository.default_branch }}" \
             --channel "$INPUT_CHANNEL" \
+            --desktop-targets "$INPUT_DESKTOP_TARGETS" \
             --source-ref "$INPUT_SOURCE_REF" \
             --source-sha "$INPUT_SOURCE_SHA" \
             --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -138,6 +149,7 @@ jobs:
           node scripts/worker-client.mjs \
             --command dispatch --token-env SOURCE_READER_TOKEN \
             --channel "${{ needs.authorize.outputs.channel }}" \
+            --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" \
             --source-ref "${{ needs.authorize.outputs.source_ref }}" \
             --source-sha "${{ needs.authorize.outputs.source_sha }}" \
             --version "${{ needs.authorize.outputs.version }}" \
@@ -173,7 +185,7 @@ jobs:
         name: Wait for private worker (phase 1)
         env:
           SOURCE_READER_TOKEN: ${{ steps.wait-token-1.outputs.token }}
-        run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
+        run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
 
       - id: wait-token-2
         if: steps.wait-1.outputs.complete != 'true'
@@ -186,7 +198,7 @@ jobs:
         name: Wait for private worker (phase 2)
         env:
           SOURCE_READER_TOKEN: ${{ steps.wait-token-2.outputs.token }}
-        run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
+        run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
 
       - id: wait-token-3
         if: steps.wait-1.outputs.complete != 'true' && steps.wait-2.outputs.complete != 'true'
@@ -199,7 +211,7 @@ jobs:
         name: Wait for private worker (phase 3)
         env:
           SOURCE_READER_TOKEN: ${{ steps.wait-token-3.outputs.token }}
-        run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
+        run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
 
       - id: wait-token-4
         if: steps.wait-1.outputs.complete != 'true' && steps.wait-2.outputs.complete != 'true' && steps.wait-3.outputs.complete != 'true'
@@ -212,7 +224,7 @@ jobs:
         name: Wait for private worker (phase 4)
         env:
           SOURCE_READER_TOKEN: ${{ steps.wait-token-4.outputs.token }}
-        run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
+        run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
 
       - name: Require completed worker
         env:
@@ -231,13 +243,13 @@ jobs:
         name: Download exact private artifact by ID and REST digest
         env:
           SOURCE_READER_TOKEN: ${{ steps.download-token.outputs.token }}
-        run: node scripts/worker-client.mjs --command download --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --output "$RUNNER_TEMP/release-bundle.zip" --github-output "$GITHUB_OUTPUT"
+        run: node scripts/worker-client.mjs --command download --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --output "$RUNNER_TEMP/release-bundle.zip" --github-output "$GITHUB_OUTPUT"
 
       - name: Safely extract Actions artifact
         run: python3 scripts/safe-extract-zip.py "$RUNNER_TEMP/release-bundle.zip" "$RUNNER_TEMP/release-bundle"
 
       - name: Verify manifest, checksums, updater manifests, npm and static web payload
-        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.authorize.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA"
+        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.authorize.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA"
 
       - name: Upload only the verified publication bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -270,13 +282,13 @@ jobs:
           name: ${{ needs.acquire.outputs.bundle_name }}
           path: ${{ runner.temp }}/release-bundle
       - id: bundle
-        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --github-output "$GITHUB_OUTPUT"
+        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --github-output "$GITHUB_OUTPUT"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24.18.0
       - id: npm-package
         name: Safely repack and revalidate npm-owned publication bytes
-        run: node scripts/prepare-npm-publication.mjs --archive "$RUNNER_TEMP/release-bundle/${{ steps.bundle.outputs.npm_path }}" --version "${{ steps.bundle.outputs.version }}" --output-dir "$RUNNER_TEMP/npm-publication" --github-output "$GITHUB_OUTPUT"
+        run: node scripts/prepare-npm-publication.mjs --archive "$RUNNER_TEMP/release-bundle/${{ steps.bundle.outputs.npm_path }}" --version "${{ steps.bundle.outputs.version }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --output-dir "$RUNNER_TEMP/npm-publication" --github-output "$GITHUB_OUTPUT"
       - id: canonical
         name: Freeze canonical npm bytes and identity
         env:
@@ -373,13 +385,13 @@ jobs:
           name: ${{ needs.acquire.outputs.bundle_name }}
           path: ${{ runner.temp }}/release-bundle
       - id: bundle
-        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --github-output "$GITHUB_OUTPUT"
+        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --github-output "$GITHUB_OUTPUT"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24.18.0
       - id: npm-package
         name: Reproduce and revalidate npm-owned publication bytes
-        run: node scripts/prepare-npm-publication.mjs --archive "$RUNNER_TEMP/release-bundle/${{ steps.bundle.outputs.npm_path }}" --version "${{ steps.bundle.outputs.version }}" --output-dir "$RUNNER_TEMP/npm-publication" --github-output "$GITHUB_OUTPUT"
+        run: node scripts/prepare-npm-publication.mjs --archive "$RUNNER_TEMP/release-bundle/${{ steps.bundle.outputs.npm_path }}" --version "${{ steps.bundle.outputs.version }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --output-dir "$RUNNER_TEMP/npm-publication" --github-output "$GITHUB_OUTPUT"
       - name: Reconfirm this run still owns the npm channel
         run: node scripts/verify-npm-publication.mjs --phase after --tarball "${{ steps.npm-package.outputs.path }}" --version "${{ steps.bundle.outputs.version }}" --dist-tag "${{ steps.bundle.outputs.npm_dist_tag }}"
       - id: release-token
@@ -416,7 +428,7 @@ jobs:
           name: ${{ needs.acquire.outputs.bundle_name }}
           path: ${{ runner.temp }}/release-bundle
       - id: bundle
-        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --github-output "$GITHUB_OUTPUT"
+        run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --github-output "$GITHUB_OUTPUT"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24.18.0
@@ -424,7 +436,7 @@ jobs:
         run: npm ci --ignore-scripts --no-audit
       - id: npm-package
         name: Reproduce and revalidate npm-owned publication bytes
-        run: node scripts/prepare-npm-publication.mjs --archive "$RUNNER_TEMP/release-bundle/${{ steps.bundle.outputs.npm_path }}" --version "${{ steps.bundle.outputs.version }}" --output-dir "$RUNNER_TEMP/npm-publication" --github-output "$GITHUB_OUTPUT"
+        run: node scripts/prepare-npm-publication.mjs --archive "$RUNNER_TEMP/release-bundle/${{ steps.bundle.outputs.npm_path }}" --version "${{ steps.bundle.outputs.version }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --output-dir "$RUNNER_TEMP/npm-publication" --github-output "$GITHUB_OUTPUT"
       - name: Reconfirm this run still owns the npm channel
         run: node scripts/verify-npm-publication.mjs --phase after --tarball "${{ steps.npm-package.outputs.path }}" --version "${{ steps.bundle.outputs.version }}" --dist-tag "${{ steps.bundle.outputs.npm_dist_tag }}"
       - name: Deploy only the static prebuilt output and verify HTTPS identity
