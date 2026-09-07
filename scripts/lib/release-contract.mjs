@@ -12,7 +12,7 @@ export const WORKER_WORKFLOW_PATH = ".github/workflows/release.yml";
 export const WORKER_IMPLEMENTATION_PATH = ".github/workflows/release-worker.yml";
 export const WORKER_WORKFLOW_ID = "244380781";
 export const WORKER_CONTROL_REF = "refs/heads/dascode/release-worker-controller";
-export const WORKER_CONTROL_SHA = "5b6e4f6c5a3a5d6b55520bd9c045fa7b8b672622";
+export const WORKER_CONTROL_SHA = "55db3ed529b47c039aedf8a4d761db3eb8c2a3ca";
 export const NPM_PACKAGE_NAME = "@das-org/dascode";
 export const NPM_REPOSITORY_URL =
   "git+https://github.com/B-DasApp/DasCode-Releases.git";
@@ -31,6 +31,7 @@ const roles = new Set([
   "npm-package",
   "web-prebuilt",
 ]);
+const desktopTargets = new Set(["windows", "windows-macos"]);
 
 const releaseAssetRoleOrder = new Map([
   ["desktop-installer", 0],
@@ -113,12 +114,18 @@ export function resolveReleaseVersion({ channel, sourceRef, runNumber, now, late
 
 export function validateReleaseRequest({
   channel,
+  desktopTargets: requestedDesktopTargets,
   sourceRef,
   sourceSha,
   runNumber,
   now,
   latestStableTag,
 }) {
+  invariant(desktopTargets.has(requestedDesktopTargets), "Unsupported desktop targets.");
+  invariant(
+    channel !== "stable" || requestedDesktopTargets === "windows",
+    "Stable releases require Windows-only desktop targets.",
+  );
   invariant(shaPattern.test(sourceSha), "source_sha must be a full lowercase 40-character commit SHA.");
   const version = resolveReleaseVersion({
     channel,
@@ -129,6 +136,7 @@ export function validateReleaseRequest({
   });
   return {
     channel,
+    desktopTargets: requestedDesktopTargets,
     sourceRef,
     sourceSha,
     version,
@@ -185,7 +193,7 @@ function validateVersionForChannel(channel, version) {
 
 export function validateManifest(manifest, expected) {
   exactKeys(manifest, ["schemaVersion", "requestId", "channel", "source", "controller", "release", "createdAt", "files"]);
-  invariant(manifest.schemaVersion === 2, "Unsupported release manifest schemaVersion.");
+  invariant(manifest.schemaVersion === 3, "Unsupported release manifest schemaVersion.");
   invariant(manifest.requestId === expected.requestId && requestIdPattern.test(manifest.requestId), "Manifest requestId mismatch.");
   invariant(manifest.channel === expected.channel, "Manifest channel mismatch.");
   invariant(!Number.isNaN(Date.parse(manifest.createdAt)), "Manifest createdAt is invalid.");
@@ -221,7 +229,7 @@ export function validateManifest(manifest, expected) {
   invariant(String(manifest.controller.runId) === String(expected.controllerRunId), "Manifest controller run ID mismatch.");
   invariant(Number(manifest.controller.runAttempt) === Number(expected.controllerRunAttempt), "Manifest controller run attempt mismatch.");
 
-  exactKeys(manifest.release, ["version", "tag", "npmDistTag", "prerelease", "makeLatest", "hostedDomain"]);
+  exactKeys(manifest.release, ["version", "tag", "npmDistTag", "prerelease", "makeLatest", "hostedDomain", "desktopTargets"]);
   validateVersionForChannel(manifest.channel, manifest.release.version);
   invariant(manifest.release.version === expected.version, "Manifest release version mismatch.");
   invariant(manifest.release.tag === `v${expected.version}`, "Manifest release tag mismatch.");
@@ -229,10 +237,17 @@ export function validateManifest(manifest, expected) {
   invariant(manifest.release.npmDistTag === expectedDistTag, "Manifest npm dist-tag crosses release channels.");
   invariant(manifest.release.prerelease === (manifest.channel !== "stable"), "Manifest prerelease flag mismatch.");
   invariant(manifest.release.makeLatest === (manifest.channel === "stable"), "Manifest latest-release flag mismatch.");
+  invariant(desktopTargets.has(manifest.release.desktopTargets), "Manifest desktop targets are invalid.");
+  invariant(manifest.release.desktopTargets === expected.desktopTargets, "Manifest desktop targets mismatch.");
+  invariant(
+    manifest.channel !== "stable" || manifest.release.desktopTargets === "windows",
+    "Stable manifests require Windows-only desktop targets.",
+  );
   const expectedDomain = `${manifest.channel === "stable" ? "latest" : manifest.channel}.code.bclouder.dev`;
   invariant(manifest.release.hostedDomain === expectedDomain, "Manifest hosted domain crosses release channels.");
 
-  const expectedFileCount = manifest.channel === "stable" ? 5 : 6;
+  const includesMacos = manifest.release.desktopTargets === "windows-macos";
+  const expectedFileCount = 5 + Number(includesMacos);
   invariant(Array.isArray(manifest.files) && manifest.files.length === expectedFileCount, "Manifest files count is invalid.");
   const seenPaths = new Set();
   const seenCaseInsensitivePaths = new Set();
@@ -280,7 +295,7 @@ export function validateManifest(manifest, expected) {
   invariant((roleCounts.get("npm-package") ?? 0) === 1, "Bundle must have exactly one npm package.");
   invariant((roleCounts.get("web-prebuilt") ?? 0) === 1, "Bundle must have exactly one web prebuilt archive.");
   const expectedMacRoleCounts = new Map([
-    ["desktop-macos-dmg", manifest.channel === "stable" ? 0 : 1],
+    ["desktop-macos-dmg", includesMacos ? 1 : 0],
   ]);
   for (const [role, count] of expectedMacRoleCounts) {
     invariant((roleCounts.get(role) ?? 0) === count, `${manifest.channel} bundle has an invalid ${role} count.`);
@@ -440,7 +455,7 @@ export function validateNpmMetadata(packageJson, expectedVersion) {
   }
 }
 
-export function validateNpmArchive(path, expectedVersion) {
+export function validateNpmArchive(path, expectedVersion, expectedDesktopTargets) {
   const inspected = inspectTar("npm", path);
   invariant(isRecord(inspected), "npm archive inspection is invalid.");
   exactKeys(inspected, ["packageJson", "resourceMonitors"]);
@@ -448,7 +463,7 @@ export function validateNpmArchive(path, expectedVersion) {
   invariant(isRecord(inspected.resourceMonitors), "npm resource-monitor inventory is invalid.");
   const expectedResourceMonitors = [
     "package/dist/resource-monitor/win32-x64/dascode-resource-monitor.exe",
-    ...(/-nightly\.\d{8}\.\d+$/u.test(expectedVersion)
+    ...(expectedDesktopTargets === "windows-macos"
       ? ["package/dist/resource-monitor/darwin-arm64/dascode-resource-monitor"]
       : []),
   ];
@@ -561,7 +576,7 @@ export async function validateBundleDirectory(root, expected) {
   validateWindowsUpdaterMetadata(readFileSync(join(absoluteRoot, updaterFile.path), "utf8"), manifest, absoluteRoot);
   const npmFile = manifest.files.find((file) => file.role === "npm-package");
   const webFile = manifest.files.find((file) => file.role === "web-prebuilt");
-  validateNpmArchive(join(absoluteRoot, npmFile.path), expected.version);
+  validateNpmArchive(join(absoluteRoot, npmFile.path), expected.version, expected.desktopTargets);
   validateWebArchive(join(absoluteRoot, webFile.path), expected);
   return manifest;
 }

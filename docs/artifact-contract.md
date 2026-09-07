@@ -2,7 +2,7 @@
 
 The fixed private caller `.github/workflows/release.yml` is dispatched with
 `operation=build-bundle`. Its run name is exactly
-`release-worker / <channel> / <request_id>`. The run must be attempt 1 at the separately pinned
+`release-worker / <channel> / <desktop-targets> / <request_id>`. The run must be attempt 1 at the separately pinned
 `refs/heads/dascode/release-worker-controller` SHA, and the run API must identify
 `.github/workflows/release-worker.yml` as the sole referenced reusable workflow at that same
 worker-control ref/SHA. Every build checkout independently uses the requested source SHA.
@@ -11,8 +11,8 @@ The final Actions artifact is named `release-bundle-<request_id>`. Intermediate 
 artifacts may coexist; the controller selects only one exact, case-sensitive final name, verifies its
 non-expired artifact ID and `sha256:` REST digest, and downloads it with a freshly minted App token.
 
-The ZIP has this top-level structure and no unlisted files or links. Stable contains exactly five
-payloads. Nightly contains six because it adds one native macOS arm64 DMG:
+The ZIP has this top-level structure and no unlisted files or links. `windows` contains exactly five
+payloads. Nightly `windows-macos` contains six because it adds one native macOS arm64 DMG:
 
 ```text
 release-manifest.json
@@ -20,17 +20,17 @@ SHA256SUMS
 desktop/<Windows x64 installer>.exe
 desktop/<Windows x64 installer>.exe.blockmap
 desktop/latest.yml | nightly.yml
-desktop/DasCode-<nightly-version>-arm64.dmg                # Nightly only
+desktop/DasCode-<nightly-version>-arm64.dmg                # Nightly windows-macos only
 npm/<package>.tgz
 web/vercel-prebuilt.tgz
 ```
 
 `SHA256SUMS` contains lowercase SHA-256 entries for `release-manifest.json` and every payload (but not
-for itself), using two spaces before the relative path. The JSON manifest uses schema version 2:
+for itself), using two spaces before the relative path. The JSON manifest uses schema version 3:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "requestId": "dcr-<controller-run>-<attempt>-<channel>-<short-sha>",
   "channel": "nightly",
   "source": {
@@ -64,7 +64,8 @@ for itself), using two spaces before the relative path. The JSON manifest uses s
     "npmDistTag": "nightly",
     "prerelease": true,
     "makeLatest": false,
-    "hostedDomain": "nightly.code.bclouder.dev"
+    "hostedDomain": "nightly.code.bclouder.dev",
+    "desktopTargets": "windows"
   },
   "createdAt": "2026-08-16T12:00:00Z",
   "files": [
@@ -82,8 +83,9 @@ for itself), using two spaces before the relative path. The JSON manifest uses s
 
 Every payload has `path`, `sha256`, positive byte `size`, `mediaType`, and exactly one recognized
 role. The roles are `desktop-installer`, `desktop-updater-manifest`, `desktop-blockmap`,
-`desktop-macos-dmg`, `npm-package`, and `web-prebuilt`. Nightly has exactly one
-`desktop-macos-dmg` entry for arm64; Stable has none. The Windows installer has base64
+`desktop-macos-dmg`, `npm-package`, and `web-prebuilt`. `windows-macos` has exactly one
+`desktop-macos-dmg` entry for arm64; `windows` has none. Stable permits only `windows`; Nightly
+permits `windows` or `windows-macos`. The Windows installer has base64
 `sha512`. The manual-install DMG deliberately does not carry updater SHA-512 metadata.
 
 The controller independently parses the Windows channel updater YAML and requires its version,
@@ -109,8 +111,8 @@ allowed `publishConfig` is exactly `{ "access": "public" }`:
 }
 ```
 
-Every npm archive must contain the non-empty Windows x64 resource monitor. Nightly must additionally
-contain the executable Darwin arm64 resource monitor, with no other monitor paths. The controller
+Every npm archive must contain the non-empty Windows x64 resource monitor. `windows-macos` must
+additionally contain the executable Darwin arm64 resource monitor, with no other monitor paths. The controller
 verifies this inventory before and after canonical npm repacking.
 
 In a separate job with OIDC explicitly disabled, the controller safely extracts this archive without

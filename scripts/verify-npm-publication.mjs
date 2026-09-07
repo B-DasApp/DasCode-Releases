@@ -5,6 +5,10 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const supportedDistTags = new Set(["latest", "nightly"]);
+// npm accepts a trusted publish before its public registry document is fully
+// replicated. A short verification window can therefore turn a completed
+// publication into a failed release, leaving downstream publication blocked.
+const publicationVerificationTimeoutMs = 15 * 60_000;
 
 function numericComponents(version, distTag) {
   if (!supportedDistTags.has(distTag)) {
@@ -89,7 +93,7 @@ async function main() {
   const phase = option("phase");
   const bytes = readFileSync(option("tarball"));
   const integrity = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
-  const deadline = Date.now() + (phase === "after" ? 5 * 60_000 : 0);
+  const deadline = Date.now() + (phase === "after" ? publicationVerificationTimeoutMs : 0);
   do {
     const document = await registry();
     if (document?.versions?.[version]) {

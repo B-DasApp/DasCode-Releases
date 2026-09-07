@@ -10,7 +10,7 @@ function invariant(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-export function prepareNpmPublication({ archivePath, version, outputDir }) {
+export function prepareNpmPublication({ archivePath, version, desktopTargets, outputDir }) {
   const absoluteOutput = resolve(outputDir);
   try {
     lstatSync(absoluteOutput);
@@ -81,7 +81,7 @@ export function prepareNpmPublication({ archivePath, version, outputDir }) {
     "npm pack returned an unsafe filename.",
   );
   const canonicalPath = join(packed, filename);
-  validateNpmArchive(canonicalPath, version);
+  validateNpmArchive(canonicalPath, version, desktopTargets);
   return canonicalPath;
 }
 
@@ -96,6 +96,7 @@ function main() {
   const path = prepareNpmPublication({
     archivePath: option("archive"),
     version: option("version"),
+    desktopTargets: option("desktop-targets"),
     outputDir: option("output-dir"),
   });
   appendFileSync(option("github-output"), `path=${path}\n`, "utf8");

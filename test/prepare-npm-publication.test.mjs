@@ -49,12 +49,14 @@ test("safely repacks a worker archive into deterministic npm-owned bytes", () =>
   const first = prepareNpmPublication({
     archivePath: archive,
     version: "1.2.4-nightly.20260816.9",
+    desktopTargets: "windows-macos",
     outputDir: join(root, "first"),
   });
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_100);
   const second = prepareNpmPublication({
     archivePath: archive,
     version: "1.2.4-nightly.20260816.9",
+    desktopTargets: "windows-macos",
     outputDir: join(root, "second"),
   });
   assert.equal(digest(first), digest(second));
@@ -92,6 +94,7 @@ test("rejects a Nightly package containing a non-executable Darwin resource moni
       prepareNpmPublication({
         archivePath: archive,
         version: "1.2.4-nightly.20260816.9",
+        desktopTargets: "windows-macos",
         outputDir: join(root, "output"),
       }),
     /Darwin resource monitors must be executable/,

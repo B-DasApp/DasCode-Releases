@@ -23,8 +23,10 @@ bridge before cutover; do not restore a credential to unprotected private workfl
   run title, first attempt, conclusion, final artifact identity, and REST artifact digest. It never
   retrieves private logs.
 - `production` gates three ordered publication jobs: npm, then a public desktop release, then Vercel.
-  The desktop release contains Windows x64 for both channels and one unsigned, manual-install macOS
-  arm64 DMG for Nightly. Stable contains no macOS payloads.
+  Stable is Windows x64 only. Nightly defaults to Windows x64 only; its maintainer may explicitly
+  select `windows-macos` to add one unsigned, manual-install macOS arm64 DMG. A macOS-only channel
+  release is intentionally unsupported because it could replace the latest Nightly prerelease while
+  omitting the Windows updater manifest.
   A credential-free job turns the verified npm payload into a frozen canonical artifact and passes
   its SHA-512 separately; the OIDC job verifies that identity. GitHub and Vercel each download the
   full immutable bundle from this controller run and repeat its validation before using it.
@@ -105,8 +107,9 @@ The worker rewrites the packed npm metadata to repository URL
 `git+https://github.com/B-DasApp/DasCode-Releases.git`, which npm requires to match this publisher.
 The controller rejects `repository.directory`, `scripts`, registry-bearing `publishConfig`, and
 archived `.npmrc`; the sole allowed publish setting is exact public access.
-It also requires the packed Windows resource monitor in every channel and the Darwin arm64 resource
-monitor in Nightly, then rechecks that exact inventory after canonical repacking.
+It also requires the packed Windows resource monitor in every channel and adds the Darwin arm64
+resource monitor only when `windows-macos` is selected, then rechecks that exact inventory after
+canonical repacking.
 The controller uses npm `11.16.0`, bundled with pinned Node `24.18.0`, both to canonicalize and to
 publish. Vercel `59.1.3` is installed from the committed integrity lockfile with lifecycle scripts
 disabled, and its compatible `tar` dependency is overridden to patched `7.5.22`. Its upstream package
@@ -132,9 +135,9 @@ branch, while the branch selected in the UI determines the workflow SHA. Therefo
 2. Configure public branch/environment protections, then merge this controller as
    `.github/workflows/release.yml` to public `main`. A feature-branch copy is not releasable.
 3. Confirm the npm trusted-publisher binding and all Vercel domains/TLS.
-4. Select public `main` in **Run workflow**, choose the channel, enter the full private ref and its full
-   lowercase commit SHA, review the `source-reader` deployment, then review `production` only after
-   bundle verification succeeds.
+4. Select public `main` in **Run workflow**, choose the channel and desktop targets, enter the full
+   private ref and its full lowercase commit SHA, review the `source-reader` deployment, then review
+   `production` only after bundle verification succeeds.
 
 Allowed sources are deliberately channel-bound:
 
@@ -147,9 +150,10 @@ private worker attempt is rejected. For a transient publication failure, rerun o
 in the same controller run so they reuse the verified bundle identity. The authorization job refuses
 workflow run attempts after attempt 1; do not use **Re-run all jobs**.
 
-Nightly GitHub Releases publish exactly one native arm64 DMG. It is unsigned and
-unnotarized, with no Mac ZIP, blockmap, or updater manifest, so macOS auto-update is not advertised.
-Stable publishes no macOS artifacts.
+The `windows` target is the default for Nightly and publishes no macOS artifacts. The optional
+`windows-macos` target adds exactly one native arm64 DMG. It is unsigned and unnotarized, with no Mac
+ZIP, blockmap, or updater manifest, so macOS auto-update is not advertised. Stable accepts only
+`windows`.
 
 Example after setup (do not run during installation):
 
@@ -158,6 +162,7 @@ gh workflow run release.yml \
   --repo B-DasApp/DasCode-Releases \
   --ref main \
   -f channel=nightly \
+  -f desktop_targets=windows \
   -f source_ref=refs/heads/dascode/main \
   -f source_sha=<full-lowercase-commit-sha>
 ```
