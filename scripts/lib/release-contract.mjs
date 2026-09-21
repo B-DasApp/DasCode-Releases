@@ -12,7 +12,7 @@ export const WORKER_WORKFLOW_PATH = ".github/workflows/release.yml";
 export const WORKER_IMPLEMENTATION_PATH = ".github/workflows/release-worker.yml";
 export const WORKER_WORKFLOW_ID = "244380781";
 export const WORKER_CONTROL_REF = "refs/heads/dascode/release-worker-controller";
-export const WORKER_CONTROL_SHA = "3e833f812d071c589c0256f21ded95a5640d0fd1";
+export const WORKER_CONTROL_SHA = "16fe3647390556c13f2e7d3fae1a50f8919387ea";
 export const NPM_PACKAGE_NAME = "@das-org/dascode";
 export const NPM_REPOSITORY_URL =
   "git+https://github.com/B-DasApp/DasCode-Releases.git";
@@ -34,6 +34,14 @@ const roles = new Set([
   "web-prebuilt",
 ]);
 const desktopTargets = new Set(["windows", "windows-macos"]);
+export const RUNTIME_TARGETS = [
+  "darwin-arm64",
+  "linux-x64",
+  "linux-arm64",
+  "win32-x64",
+  "win32-arm64",
+];
+const runtimeTargetSet = new Set(RUNTIME_TARGETS);
 
 const releaseAssetRoleOrder = new Map([
   ["desktop-installer", 0],
@@ -118,6 +126,7 @@ export function resolveReleaseVersion({ channel, sourceRef, runNumber, now, late
 export function validateReleaseRequest({
   channel,
   desktopTargets: requestedDesktopTargets,
+  runtimeTargets: requestedRuntimeTargets,
   sourceRef,
   sourceSha,
   runNumber,
@@ -128,6 +137,10 @@ export function validateReleaseRequest({
   invariant(
     channel !== "stable" || requestedDesktopTargets === "windows",
     "Stable releases require Windows-only desktop targets.",
+  );
+  const selectedRuntimeTargets = normalizeRuntimeTargets(
+    requestedRuntimeTargets,
+    requestedDesktopTargets,
   );
   invariant(shaPattern.test(sourceSha), "source_sha must be a full lowercase 40-character commit SHA.");
   const version = resolveReleaseVersion({
@@ -140,6 +153,7 @@ export function validateReleaseRequest({
   return {
     channel,
     desktopTargets: requestedDesktopTargets,
+    runtimeTargets: selectedRuntimeTargets.join(","),
     sourceRef,
     sourceSha,
     version,
@@ -148,6 +162,23 @@ export function validateReleaseRequest({
     prerelease: channel !== "stable",
     makeLatest: channel === "stable",
   };
+}
+
+export function normalizeRuntimeTargets(value, requestedDesktopTargets = "windows") {
+  invariant(typeof value === "string" && value !== "", "Runtime targets must not be empty.");
+  const requested = value.split(",").map((target) => target.trim());
+  invariant(requested.every((target) => target !== ""), "Runtime targets contain an empty entry.");
+  invariant(new Set(requested).size === requested.length, "Runtime targets contain a duplicate entry.");
+  for (const target of requested) {
+    invariant(runtimeTargetSet.has(target), `Unsupported runtime target: ${target}.`);
+  }
+  const selected = RUNTIME_TARGETS.filter((target) => requested.includes(target));
+  invariant(selected.length > 0, "At least one runtime target is required.");
+  invariant(
+    !requestedDesktopTargets.includes("windows") || selected.includes("linux-x64"),
+    "Windows desktop releases require linux-x64 for the embedded WSL runtime.",
+  );
+  return selected;
 }
 
 export function buildRequestId({ runId, runAttempt, channel, sourceSha }) {
@@ -199,7 +230,7 @@ function validateVersionForChannel(channel, version) {
 
 export function validateManifest(manifest, expected) {
   exactKeys(manifest, ["schemaVersion", "requestId", "channel", "source", "controller", "release", "createdAt", "files"]);
-  invariant(manifest.schemaVersion === 4, "Unsupported release manifest schemaVersion.");
+  invariant(manifest.schemaVersion === 5, "Unsupported release manifest schemaVersion.");
   invariant(manifest.requestId === expected.requestId && requestIdPattern.test(manifest.requestId), "Manifest requestId mismatch.");
   invariant(manifest.channel === expected.channel, "Manifest channel mismatch.");
   invariant(!Number.isNaN(Date.parse(manifest.createdAt)), "Manifest createdAt is invalid.");
@@ -235,7 +266,7 @@ export function validateManifest(manifest, expected) {
   invariant(String(manifest.controller.runId) === String(expected.controllerRunId), "Manifest controller run ID mismatch.");
   invariant(Number(manifest.controller.runAttempt) === Number(expected.controllerRunAttempt), "Manifest controller run attempt mismatch.");
 
-  exactKeys(manifest.release, ["version", "tag", "npmDistTag", "prerelease", "makeLatest", "hostedDomain", "desktopTargets"]);
+  exactKeys(manifest.release, ["version", "tag", "npmDistTag", "prerelease", "makeLatest", "hostedDomain", "desktopTargets", "runtimeTargets"]);
   validateVersionForChannel(manifest.channel, manifest.release.version);
   invariant(manifest.release.version === expected.version, "Manifest release version mismatch.");
   invariant(manifest.release.tag === `v${expected.version}`, "Manifest release tag mismatch.");
@@ -249,18 +280,26 @@ export function validateManifest(manifest, expected) {
     manifest.channel !== "stable" || manifest.release.desktopTargets === "windows",
     "Stable manifests require Windows-only desktop targets.",
   );
+  const expectedRuntimeTargets = normalizeRuntimeTargets(
+    expected.runtimeTargets,
+    manifest.release.desktopTargets,
+  );
+  invariant(Array.isArray(manifest.release.runtimeTargets), "Manifest runtime targets are invalid.");
+  invariant(
+    JSON.stringify(manifest.release.runtimeTargets) === JSON.stringify(expectedRuntimeTargets),
+    "Manifest runtime targets mismatch.",
+  );
   const expectedDomain = `${manifest.channel === "stable" ? "latest" : manifest.channel}.code.bclouder.dev`;
   invariant(manifest.release.hostedDomain === expectedDomain, "Manifest hosted domain crosses release channels.");
 
   const includesMacos = manifest.release.desktopTargets === "windows-macos";
-  const expectedCliArchivePaths = new Set([
-    `dascode-${manifest.release.version}-darwin-arm64.tar.gz`,
-    `dascode-${manifest.release.version}-linux-x64.tar.gz`,
-    `dascode-${manifest.release.version}-linux-arm64.tar.gz`,
-    `dascode-${manifest.release.version}-win32-x64.zip`,
-    `dascode-${manifest.release.version}-win32-arm64.zip`,
-  ]);
-  const expectedFileCount = 10 + Number(includesMacos);
+  const expectedCliArchivePaths = new Set(
+    expectedRuntimeTargets.map((target) => {
+      const extension = target.startsWith("win32-") ? "zip" : "tar.gz";
+      return `dascode-${manifest.release.version}-${target}.${extension}`;
+    }),
+  );
+  const expectedFileCount = 5 + expectedRuntimeTargets.length + Number(includesMacos);
   invariant(Array.isArray(manifest.files) && manifest.files.length === expectedFileCount, "Manifest files count is invalid.");
   const seenPaths = new Set();
   const seenCaseInsensitivePaths = new Set();
@@ -313,7 +352,10 @@ export function validateManifest(manifest, expected) {
   invariant((roleCounts.get("desktop-installer") ?? 0) === 1, "Bundle must have exactly one desktop installer.");
   invariant((roleCounts.get("desktop-updater-manifest") ?? 0) === 1, "Bundle must have one channel updater manifest.");
   invariant((roleCounts.get("desktop-blockmap") ?? 0) === 1, "Bundle must have exactly one desktop blockmap.");
-  invariant((roleCounts.get("cli-archive") ?? 0) === 5, "Bundle must have exactly five CLI archives.");
+  invariant(
+    (roleCounts.get("cli-archive") ?? 0) === expectedRuntimeTargets.length,
+    "Bundle must have exactly the selected CLI archives.",
+  );
   invariant((roleCounts.get("npm-package") ?? 0) === 1, "Bundle must have exactly one npm package.");
   invariant((roleCounts.get("web-prebuilt") ?? 0) === 1, "Bundle must have exactly one web prebuilt archive.");
   const expectedMacRoleCounts = new Map([

@@ -33,6 +33,7 @@ async function main() {
     requestId: required(args, "request-id"),
     channel: required(args, "channel"),
     desktopTargets: required(args, "desktop-targets"),
+    runtimeTargets: required(args, "runtime-targets"),
     sourceRef: required(args, "source-ref"),
     sourceSha: required(args, "source-sha"),
     version: required(args, "version"),

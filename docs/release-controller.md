@@ -135,7 +135,8 @@ branch, while the branch selected in the UI determines the workflow SHA. Therefo
 2. Configure public branch/environment protections, then merge this controller as
    `.github/workflows/release.yml` to public `main`. A feature-branch copy is not releasable.
 3. Confirm the npm trusted-publisher binding and all Vercel domains/TLS.
-4. Select public `main` in **Run workflow**, choose the channel and desktop targets, enter the full
+4. Select public `main` in **Run workflow**, choose the channel and desktop targets, enter the
+   comma-separated runtime targets, then enter the full
    private ref and its full lowercase commit SHA, review the `source-reader` deployment, then review
    `production` only after bundle verification succeeds.
 
@@ -155,6 +156,11 @@ The `windows` target is the default for Nightly and publishes no macOS artifacts
 ZIP, blockmap, or updater manifest, so macOS auto-update is not advertised. Stable accepts only
 `windows`.
 
+Runtime archives are selected independently with `runtime_targets`. The default is
+`linux-x64,win32-x64`; supported values are `darwin-arm64`, `linux-x64`, `linux-arm64`,
+`win32-x64`, and `win32-arm64`. Input order is normalized and duplicates or unsupported targets are
+rejected. A Windows desktop release must include `linux-x64` for its embedded WSL runtime.
+
 Example after setup (do not run during installation):
 
 ```sh
@@ -163,6 +169,7 @@ gh workflow run release.yml \
   --ref main \
   -f channel=nightly \
   -f desktop_targets=windows \
+  -f runtime_targets=linux-x64,win32-x64 \
   -f source_ref=refs/heads/dascode/main \
   -f source_sha=<full-lowercase-commit-sha>
 ```
