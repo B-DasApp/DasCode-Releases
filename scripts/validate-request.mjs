@@ -90,6 +90,7 @@ async function main() {
   const request = validateReleaseRequest({
     channel,
     desktopTargets: required(args, "desktop-targets"),
+    runtimeTargets: required(args, "runtime-targets"),
     sourceRef: required(args, "source-ref"),
     sourceSha: required(args, "source-sha"),
     runNumber: required(args, "controller-run-number"),
@@ -109,6 +110,7 @@ async function main() {
     request_id: requestId,
     channel: request.channel,
     desktop_targets: request.desktopTargets,
+    runtime_targets: request.runtimeTargets,
     source_ref: request.sourceRef,
     source_sha: request.sourceSha,
     version: request.version,

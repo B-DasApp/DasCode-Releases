@@ -137,6 +137,7 @@ async function dispatch(token, args) {
     request_id: requestId,
     channel,
     desktop_targets: required(args, "desktop-targets"),
+    runtime_targets: required(args, "runtime-targets"),
     source_ref: sourceRef,
     source_sha: sourceSha,
     worker_ref: WORKER_CONTROL_REF,
@@ -170,7 +171,7 @@ async function waitForRun(token, args) {
     runId,
     sourceRef: required(args, "source-ref"),
     sourceSha: required(args, "source-sha"),
-    title: `release-worker / ${required(args, "channel")} / ${required(args, "desktop-targets")} / ${required(args, "request-id")}`,
+    title: `release-worker / ${required(args, "channel")} / ${required(args, "desktop-targets")} / ${required(args, "runtime-targets")} / ${required(args, "request-id")}`,
   };
   const timeoutAt = Date.now() + Number(args.get("timeout-seconds") ?? "2700") * 1000;
   const titleSettlementDeadline = Math.min(
@@ -229,7 +230,7 @@ async function download(token, args) {
     runId,
     sourceRef: required(args, "source-ref"),
     sourceSha: required(args, "source-sha"),
-    title: `release-worker / ${required(args, "channel")} / ${required(args, "desktop-targets")} / ${required(args, "request-id")}`,
+    title: `release-worker / ${required(args, "channel")} / ${required(args, "desktop-targets")} / ${required(args, "runtime-targets")} / ${required(args, "request-id")}`,
   };
   const runResponse = await request(token, `/repos/${SOURCE_REPOSITORY}/actions/runs/${runId}`);
   const run = await runResponse.json();

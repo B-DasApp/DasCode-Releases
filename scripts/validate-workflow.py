@@ -49,6 +49,7 @@ def main() -> None:
         'refProtected !== "true"',
         "expectedWorkflowRef",
         "desktop_targets: request.desktopTargets",
+        "runtime_targets: request.runtimeTargets",
     ):
         if marker not in request_text:
             raise SystemExit(f"request validator is missing policy marker: {marker}")
@@ -77,16 +78,18 @@ def main() -> None:
         raise SystemExit("GitHub release metadata must not replace exact Git ref verification")
     for marker in (
         "desktop-macos-dmg",
-        'invariant(manifest.schemaVersion === 4',
+        'invariant(manifest.schemaVersion === 5',
         '"cli-archive"',
         'const includesMacos = manifest.release.desktopTargets === "windows-macos";',
-        "const expectedFileCount = 10 + Number(includesMacos);",
-        'roleCounts.get("cli-archive") ?? 0) === 5',
-        "darwin-arm64.tar.gz",
-        "linux-x64.tar.gz",
-        "linux-arm64.tar.gz",
-        "win32-x64.zip",
-        "win32-arm64.zip",
+        "const expectedFileCount = 5 + expectedRuntimeTargets.length + Number(includesMacos);",
+        'roleCounts.get("cli-archive") ?? 0) === expectedRuntimeTargets.length',
+        '"runtimeTargets"',
+        "normalizeRuntimeTargets",
+        '"darwin-arm64"',
+        '"linux-x64"',
+        '"linux-arm64"',
+        '"win32-x64"',
+        '"win32-arm64"',
         '["desktop-macos-dmg", includesMacos ? 1 : 0]',
         'desktop/DasCode-${manifest.release.version}-arm64.dmg',
         'expectedDesktopTargets === "windows-macos"',

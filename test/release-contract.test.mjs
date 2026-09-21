@@ -5,11 +5,13 @@ import {
   WORKER_CONTROL_REF,
   WORKER_CONTROL_SHA,
   buildRequestId,
+  normalizeRuntimeTargets,
   parseSha256Sums,
   parseUpdaterYaml,
   releaseAssetNames,
   releaseAssetPaths,
   resolveReleaseVersion,
+  validateReleaseRequest,
   validateManifest,
   validateNpmMetadata,
   validateWebConfig,
@@ -20,7 +22,7 @@ const version = "0.0.33-nightly.20260816.90";
 const installerSha512 = `${"A".repeat(86)}==`;
 function manifest() {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     requestId: "dcr-123-1-nightly-aaaaaaaaaaaa",
     channel: "nightly",
     source: {
@@ -56,6 +58,13 @@ function manifest() {
       makeLatest: false,
       hostedDomain: "nightly.code.bclouder.dev",
       desktopTargets: "windows-macos",
+      runtimeTargets: [
+        "darwin-arm64",
+        "linux-x64",
+        "linux-arm64",
+        "win32-x64",
+        "win32-arm64",
+      ],
     },
     createdAt: "2026-08-16T12:00:00Z",
     files: [
@@ -78,6 +87,7 @@ const expected = {
   requestId: "dcr-123-1-nightly-aaaaaaaaaaaa",
   channel: "nightly",
   desktopTargets: "windows-macos",
+  runtimeTargets: "darwin-arm64,linux-x64,linux-arm64,win32-x64,win32-arm64",
   sourceRef: "refs/heads/dascode/main",
   sourceSha,
   markerSha: null,
@@ -94,6 +104,34 @@ test("resolves channel-bound versions from public stable tags", () => {
   assert.equal(resolveReleaseVersion({ channel: "nightly", sourceRef: "refs/heads/dascode/main", runNumber: "9", now: "2026-08-16T00:00:00Z", latestStableTag: "v1.10.2" }), "1.10.3-nightly.20260816.9");
   assert.throws(() => resolveReleaseVersion({ channel: "canary", sourceRef: "refs/heads/dascode/feature", runNumber: "9", now: "2026-08-16T00:00:00Z", latestStableTag: "v1.2.3" }), /Unsupported channel/);
   assert.throws(() => resolveReleaseVersion({ channel: "nightly", sourceRef: "refs/heads/dascode/feature", runNumber: "9", now: "2026-08-16T00:00:00Z", latestStableTag: "v1.2.3" }), /refs\/heads\/dascode\/main/);
+});
+
+test("normalizes request-selected runtimes and preserves the Windows WSL dependency", () => {
+  const request = validateReleaseRequest({
+    channel: "nightly",
+    desktopTargets: "windows",
+    runtimeTargets: "win32-x64, linux-x64",
+    sourceRef: "refs/heads/dascode/main",
+    sourceSha,
+    runNumber: "90",
+    now: "2026-08-16T00:00:00Z",
+    latestStableTag: "v0.0.32",
+  });
+  assert.equal(request.runtimeTargets, "linux-x64,win32-x64");
+  assert.throws(
+    () =>
+      validateReleaseRequest({
+        channel: "nightly",
+        desktopTargets: "windows",
+        runtimeTargets: "win32-x64",
+        sourceRef: "refs/heads/dascode/main",
+        sourceSha,
+        runNumber: "90",
+        now: "2026-08-16T00:00:00Z",
+        latestStableTag: "v0.0.32",
+      }),
+    /linux-x64 for the embedded WSL runtime/,
+  );
 });
 
 test("validates the exact cross-repository manifest identity", () => {
@@ -129,6 +167,7 @@ test("keeps Stable on the Windows-only desktop contract", () => {
     makeLatest: true,
     hostedDomain: "latest.code.bclouder.dev",
     desktopTargets: "windows",
+    runtimeTargets: value.release.runtimeTargets,
   };
   value.files.find((file) => file.role === "desktop-updater-manifest").path =
     "desktop/latest.yml";
@@ -163,6 +202,7 @@ test("requires exactly one manual-install arm64 DMG for Nightly", () => {
     makeLatest: false,
     hostedDomain: "nightly.code.bclouder.dev",
     desktopTargets: "windows-macos",
+    runtimeTargets: value.release.runtimeTargets,
   };
   value.files.find((file) => file.role === "desktop-updater-manifest").path =
     "desktop/nightly.yml";
@@ -212,6 +252,38 @@ test("keeps Windows-only Nightly bundles free of macOS release files", () => {
   const includesMacos = structuredClone(value);
   includesMacos.files.push(manifest().files.find((file) => file.role === "desktop-macos-dmg"));
   assert.throws(() => validateManifest(includesMacos, windowsExpected), /files count is invalid/);
+});
+
+test("accepts only the exact request-selected runtime archives", () => {
+  const value = manifest();
+  value.release.runtimeTargets = ["linux-x64", "win32-x64"];
+  value.files = value.files.filter(
+    (file) =>
+      file.role !== "cli-archive" ||
+      file.path === `dascode-${version}-linux-x64.tar.gz` ||
+      file.path === `dascode-${version}-win32-x64.zip`,
+  );
+  const selectedExpected = {
+    ...expected,
+    runtimeTargets: "win32-x64, linux-x64",
+  };
+
+  assert.deepEqual(normalizeRuntimeTargets(selectedExpected.runtimeTargets), [
+    "linux-x64",
+    "win32-x64",
+  ]);
+  assert.equal(validateManifest(value, selectedExpected).files.length, 8);
+
+  const unexpectedTarget = structuredClone(value);
+  unexpectedTarget.files.push(
+    manifest().files.find(
+      (file) => file.path === `dascode-${version}-linux-arm64.tar.gz`,
+    ),
+  );
+  assert.throws(
+    () => validateManifest(unexpectedTarget, selectedExpected),
+    /files count is invalid/,
+  );
 });
 
 test("requires npm trusted-publisher metadata and no lifecycle scripts", () => {
@@ -282,7 +354,7 @@ test("publishes the complete Nightly desktop and CLI set in deterministic order"
   );
 });
 
-test("requires all five exact version-bound CLI archive targets", () => {
+test("requires the exact version-bound selected CLI archive targets", () => {
   const wrongExtension = manifest();
   wrongExtension.files.find(
     (file) => file.path === `dascode-${version}-linux-x64.tar.gz`,
@@ -294,7 +366,7 @@ test("requires all five exact version-bound CLI archive targets", () => {
 
   const missingTarget = manifest();
   missingTarget.files = missingTarget.files.filter(
-    (file) => file.path !== `dascode-${version}-win32-arm64.zip`,
+    (file) => file.path !== `dascode-${version}-win32-x64.zip`,
   );
   assert.throws(() => validateManifest(missingTarget, expected), /files count is invalid/);
 });

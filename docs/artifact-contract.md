@@ -2,7 +2,7 @@
 
 The fixed private caller `.github/workflows/release.yml` is dispatched with
 `operation=build-bundle`. Its run name is exactly
-`release-worker / <channel> / <desktop-targets> / <request_id>`. The run must be attempt 1 at the separately pinned
+`release-worker / <channel> / <desktop-targets> / <runtime-targets> / <request_id>`. The run must be attempt 1 at the separately pinned
 `refs/heads/dascode/release-worker-controller` SHA, and the run API must identify
 `.github/workflows/release-worker.yml` as the sole referenced reusable workflow at that same
 worker-control ref/SHA. Every build checkout independently uses the requested source SHA.
@@ -11,9 +11,9 @@ The final Actions artifact is named `release-bundle-<request_id>`. Intermediate 
 artifacts may coexist; the controller selects only one exact, case-sensitive final name, verifies its
 non-expired artifact ID and `sha256:` REST digest, and downloads it with a freshly minted App token.
 
-The ZIP has this top-level structure and no unlisted files or links. Every release contains five
-version-bound CLI archives in addition to the publication and desktop payloads. `windows` contains
-exactly ten payloads. Nightly `windows-macos` contains eleven because it adds one native macOS arm64
+The ZIP has this top-level structure and no unlisted files or links. Every release contains the
+exact version-bound CLI archives selected by `runtime_targets`, plus the publication and desktop
+payloads. Windows adds five non-runtime payloads; Nightly `windows-macos` adds one native macOS arm64
 DMG:
 
 ```text
@@ -32,12 +32,15 @@ npm/<package>.tgz
 web/vercel-prebuilt.tgz
 ```
 
+Unselected runtime archive lines above are absent. Windows desktop releases must select `linux-x64`
+because the installer embeds it for WSL.
+
 `SHA256SUMS` contains lowercase SHA-256 entries for `release-manifest.json` and every payload (but not
-for itself), using two spaces before the relative path. The JSON manifest uses schema version 4:
+for itself), using two spaces before the relative path. The JSON manifest uses schema version 5:
 
 ```json
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "requestId": "dcr-<controller-run>-<attempt>-<channel>-<short-sha>",
   "channel": "nightly",
   "source": {
@@ -72,7 +75,8 @@ for itself), using two spaces before the relative path. The JSON manifest uses s
     "prerelease": true,
     "makeLatest": false,
     "hostedDomain": "nightly.code.bclouder.dev",
-    "desktopTargets": "windows"
+    "desktopTargets": "windows",
+    "runtimeTargets": ["linux-x64", "win32-x64"]
   },
   "createdAt": "2026-08-16T12:00:00Z",
   "files": [
@@ -90,9 +94,9 @@ for itself), using two spaces before the relative path. The JSON manifest uses s
 
 Every payload has `path`, `sha256`, positive byte `size`, `mediaType`, and exactly one recognized
 role. The roles are `desktop-installer`, `desktop-updater-manifest`, `desktop-blockmap`,
-`desktop-macos-dmg`, `cli-archive`, `npm-package`, and `web-prebuilt`. Every bundle has exactly five
-`cli-archive` entries for Darwin arm64, Linux x64/arm64, and Windows x64/arm64, using the exact
-release version and archive format shown above. `windows-macos` has exactly one
+`desktop-macos-dmg`, `cli-archive`, `npm-package`, and `web-prebuilt`. Every bundle has exactly one
+`cli-archive` entry for each selected runtime target, using the exact release version and archive
+format shown above, and no entry for an unselected target. `windows-macos` has exactly one
 `desktop-macos-dmg` entry for arm64; `windows` has none. Stable permits only `windows`; Nightly
 permits `windows` or `windows-macos`. The Windows installer has base64
 `sha512`. The manual-install DMG deliberately does not carry updater SHA-512 metadata.
@@ -101,7 +105,7 @@ The controller independently parses the Windows channel updater YAML and require
 filename/URL, size, and both SHA-512 fields to match the single installer and its actual bytes.
 There is no macOS updater manifest, ZIP, or blockmap. Case-colliding or additional files are rejected.
 
-The GitHub publisher uploads desktop installers and all five CLI archives first, then the Windows
+The GitHub publisher uploads desktop installers and all selected CLI archives first, then the Windows
 blockmap, then `SHA256SUMS` and the JSON manifest, and the Windows updater YAML last. This prevents
 that updater manifest from becoming visible before its payload. The Nightly arm64 DMG is unsigned
 and manual-install-only. Apple signing, notarization, and macOS auto-update are separate future
