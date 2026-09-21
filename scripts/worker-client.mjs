@@ -140,7 +140,6 @@ async function dispatch(token, args) {
     runtime_targets: required(args, "runtime-targets"),
     source_ref: sourceRef,
     source_sha: sourceSha,
-    worker_ref: WORKER_CONTROL_REF,
     worker_sha: WORKER_CONTROL_SHA,
     version: required(args, "version"),
     controller_repository: required(args, "controller-repository"),
