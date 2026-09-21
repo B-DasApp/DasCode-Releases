@@ -11,8 +11,10 @@ The final Actions artifact is named `release-bundle-<request_id>`. Intermediate 
 artifacts may coexist; the controller selects only one exact, case-sensitive final name, verifies its
 non-expired artifact ID and `sha256:` REST digest, and downloads it with a freshly minted App token.
 
-The ZIP has this top-level structure and no unlisted files or links. `windows` contains exactly five
-payloads. Nightly `windows-macos` contains six because it adds one native macOS arm64 DMG:
+The ZIP has this top-level structure and no unlisted files or links. Every release contains five
+version-bound CLI archives in addition to the publication and desktop payloads. `windows` contains
+exactly ten payloads. Nightly `windows-macos` contains eleven because it adds one native macOS arm64
+DMG:
 
 ```text
 release-manifest.json
@@ -21,16 +23,21 @@ desktop/<Windows x64 installer>.exe
 desktop/<Windows x64 installer>.exe.blockmap
 desktop/latest.yml | nightly.yml
 desktop/DasCode-<nightly-version>-arm64.dmg                # Nightly windows-macos only
+dascode-<version>-darwin-arm64.tar.gz
+dascode-<version>-linux-x64.tar.gz
+dascode-<version>-linux-arm64.tar.gz
+dascode-<version>-win32-x64.zip
+dascode-<version>-win32-arm64.zip
 npm/<package>.tgz
 web/vercel-prebuilt.tgz
 ```
 
 `SHA256SUMS` contains lowercase SHA-256 entries for `release-manifest.json` and every payload (but not
-for itself), using two spaces before the relative path. The JSON manifest uses schema version 3:
+for itself), using two spaces before the relative path. The JSON manifest uses schema version 4:
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "requestId": "dcr-<controller-run>-<attempt>-<channel>-<short-sha>",
   "channel": "nightly",
   "source": {
@@ -83,7 +90,9 @@ for itself), using two spaces before the relative path. The JSON manifest uses s
 
 Every payload has `path`, `sha256`, positive byte `size`, `mediaType`, and exactly one recognized
 role. The roles are `desktop-installer`, `desktop-updater-manifest`, `desktop-blockmap`,
-`desktop-macos-dmg`, `npm-package`, and `web-prebuilt`. `windows-macos` has exactly one
+`desktop-macos-dmg`, `cli-archive`, `npm-package`, and `web-prebuilt`. Every bundle has exactly five
+`cli-archive` entries for Darwin arm64, Linux x64/arm64, and Windows x64/arm64, using the exact
+release version and archive format shown above. `windows-macos` has exactly one
 `desktop-macos-dmg` entry for arm64; `windows` has none. Stable permits only `windows`; Nightly
 permits `windows` or `windows-macos`. The Windows installer has base64
 `sha512`. The manual-install DMG deliberately does not carry updater SHA-512 metadata.
@@ -92,11 +101,11 @@ The controller independently parses the Windows channel updater YAML and require
 filename/URL, size, and both SHA-512 fields to match the single installer and its actual bytes.
 There is no macOS updater manifest, ZIP, or blockmap. Case-colliding or additional files are rejected.
 
-The GitHub publisher uploads installers first, then the Windows blockmap, then `SHA256SUMS` and the
-JSON manifest, and the Windows updater YAML last. This prevents that updater manifest from becoming
-visible before its payload. The Nightly arm64 DMG is unsigned and manual-install-only. Apple signing,
-notarization, and macOS auto-update are separate future release-policy changes, not implicit
-properties of this contract.
+The GitHub publisher uploads desktop installers and all five CLI archives first, then the Windows
+blockmap, then `SHA256SUMS` and the JSON manifest, and the Windows updater YAML last. This prevents
+that updater manifest from becoming visible before its payload. The Nightly arm64 DMG is unsigned
+and manual-install-only. Apple signing, notarization, and macOS auto-update are separate future
+release-policy changes, not implicit properties of this contract.
 
 The npm archive must contain a regular `package/package.json` for `@das-org/dascode`, the exact
 release version, no `scripts`, no registry override, and this exact repository metadata. The only

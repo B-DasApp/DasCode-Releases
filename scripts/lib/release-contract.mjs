@@ -23,11 +23,13 @@ const sha512Pattern = /^[A-Za-z0-9+/]{86}==$/u;
 const stableVersionPattern = /^\d+\.\d+\.\d+$/u;
 const requestIdPattern = /^[A-Za-z0-9._-]{1,128}$/u;
 const safeBundlePathPattern = /^(desktop|npm|web)\/[A-Za-z0-9][A-Za-z0-9._+@/-]*$/u;
+const safeCliArchivePathPattern = /^dascode-[A-Za-z0-9][A-Za-z0-9.+-]*-(?:darwin-arm64|linux-(?:x64|arm64)|win32-(?:x64|arm64))\.(?:tar\.gz|zip)$/u;
 const roles = new Set([
   "desktop-installer",
   "desktop-updater-manifest",
   "desktop-blockmap",
   "desktop-macos-dmg",
+  "cli-archive",
   "npm-package",
   "web-prebuilt",
 ]);
@@ -36,6 +38,7 @@ const desktopTargets = new Set(["windows", "windows-macos"]);
 const releaseAssetRoleOrder = new Map([
   ["desktop-installer", 0],
   ["desktop-macos-dmg", 0],
+  ["cli-archive", 0],
   ["desktop-blockmap", 1],
   ["release-metadata", 2],
   ["desktop-updater-manifest", 3],
@@ -162,7 +165,7 @@ export function releaseAssetPaths(root, manifest) {
     { path: join(root, "release-manifest.json"), role: "release-metadata" },
     { path: join(root, "SHA256SUMS"), role: "release-metadata" },
     ...manifest.files
-      .filter((file) => file.role.startsWith("desktop-"))
+      .filter((file) => file.role.startsWith("desktop-") || file.role === "cli-archive")
       .map((file) => ({ path: join(root, file.path), role: file.role })),
   ];
   for (const entry of entries) {
@@ -178,7 +181,10 @@ export function releaseAssetPaths(root, manifest) {
 }
 
 function validatePath(path) {
-  invariant(safeBundlePathPattern.test(path), `Unsafe or unsupported bundle path: ${path}.`);
+  invariant(
+    safeBundlePathPattern.test(path) || safeCliArchivePathPattern.test(path),
+    `Unsafe or unsupported bundle path: ${path}.`,
+  );
   invariant(!path.includes("//") && !path.includes(".."), `Unsafe bundle path: ${path}.`);
   invariant(path.split("/").every((part) => part !== "" && part !== "." && part !== ".."), `Unsafe bundle path: ${path}.`);
 }
@@ -193,7 +199,7 @@ function validateVersionForChannel(channel, version) {
 
 export function validateManifest(manifest, expected) {
   exactKeys(manifest, ["schemaVersion", "requestId", "channel", "source", "controller", "release", "createdAt", "files"]);
-  invariant(manifest.schemaVersion === 3, "Unsupported release manifest schemaVersion.");
+  invariant(manifest.schemaVersion === 4, "Unsupported release manifest schemaVersion.");
   invariant(manifest.requestId === expected.requestId && requestIdPattern.test(manifest.requestId), "Manifest requestId mismatch.");
   invariant(manifest.channel === expected.channel, "Manifest channel mismatch.");
   invariant(!Number.isNaN(Date.parse(manifest.createdAt)), "Manifest createdAt is invalid.");
@@ -247,7 +253,14 @@ export function validateManifest(manifest, expected) {
   invariant(manifest.release.hostedDomain === expectedDomain, "Manifest hosted domain crosses release channels.");
 
   const includesMacos = manifest.release.desktopTargets === "windows-macos";
-  const expectedFileCount = 5 + Number(includesMacos);
+  const expectedCliArchivePaths = new Set([
+    `dascode-${manifest.release.version}-darwin-arm64.tar.gz`,
+    `dascode-${manifest.release.version}-linux-x64.tar.gz`,
+    `dascode-${manifest.release.version}-linux-arm64.tar.gz`,
+    `dascode-${manifest.release.version}-win32-x64.zip`,
+    `dascode-${manifest.release.version}-win32-arm64.zip`,
+  ]);
+  const expectedFileCount = 10 + Number(includesMacos);
   invariant(Array.isArray(manifest.files) && manifest.files.length === expectedFileCount, "Manifest files count is invalid.");
   const seenPaths = new Set();
   const seenCaseInsensitivePaths = new Set();
@@ -286,12 +299,21 @@ export function validateManifest(manifest, expected) {
       invariant(file.mediaType === "application/x-apple-diskimage", "macOS DMG media type is invalid.");
       invariant(!Object.hasOwn(file, "sha512"), "Manual-install macOS DMGs must not carry updater SHA-512 metadata.");
     }
+    if (file.role === "cli-archive") {
+      invariant(
+        expectedCliArchivePaths.has(file.path),
+        "CLI archive path does not match the exact release version and supported targets.",
+      );
+      invariant(file.mediaType === "application/octet-stream", "CLI archive media type is invalid.");
+      invariant(!Object.hasOwn(file, "sha512"), "CLI archives must not carry updater SHA-512 metadata.");
+    }
     if (file.role === "npm-package") invariant(/^npm\/[A-Za-z0-9@._+-]+\.tgz$/u.test(file.path), "npm package path is invalid.");
     if (file.role === "web-prebuilt") invariant(file.path === "web/vercel-prebuilt.tgz", "Web prebuilt path is invalid.");
   }
   invariant((roleCounts.get("desktop-installer") ?? 0) === 1, "Bundle must have exactly one desktop installer.");
   invariant((roleCounts.get("desktop-updater-manifest") ?? 0) === 1, "Bundle must have one channel updater manifest.");
   invariant((roleCounts.get("desktop-blockmap") ?? 0) === 1, "Bundle must have exactly one desktop blockmap.");
+  invariant((roleCounts.get("cli-archive") ?? 0) === 5, "Bundle must have exactly five CLI archives.");
   invariant((roleCounts.get("npm-package") ?? 0) === 1, "Bundle must have exactly one npm package.");
   invariant((roleCounts.get("web-prebuilt") ?? 0) === 1, "Bundle must have exactly one web prebuilt archive.");
   const expectedMacRoleCounts = new Map([
@@ -300,6 +322,14 @@ export function validateManifest(manifest, expected) {
   for (const [role, count] of expectedMacRoleCounts) {
     invariant((roleCounts.get(role) ?? 0) === count, `${manifest.channel} bundle has an invalid ${role} count.`);
   }
+  const actualCliArchivePaths = new Set(
+    manifest.files.filter((file) => file.role === "cli-archive").map((file) => file.path),
+  );
+  invariant(
+    actualCliArchivePaths.size === expectedCliArchivePaths.size &&
+      [...expectedCliArchivePaths].every((path) => actualCliArchivePaths.has(path)),
+    "Bundle CLI archive targets are incomplete.",
+  );
   const installer = manifest.files.find((file) => file.role === "desktop-installer");
   const blockmap = manifest.files.find((file) => file.role === "desktop-blockmap");
   invariant(blockmap.path === `${installer.path}.blockmap`, "Desktop blockmap does not belong to the sole installer.");
@@ -310,7 +340,7 @@ export function parseSha256Sums(text) {
   const result = new Map();
   invariant(text.endsWith("\n"), "SHA256SUMS must end with a newline.");
   for (const line of text.split("\n").slice(0, -1)) {
-    const match = /^([0-9a-f]{64})  (release-manifest\.json|(?:desktop|npm|web)\/[A-Za-z0-9][A-Za-z0-9._+@/-]*)$/u.exec(line);
+    const match = /^([0-9a-f]{64})  (release-manifest\.json|dascode-[A-Za-z0-9][A-Za-z0-9.+-]*-(?:darwin-arm64|linux-(?:x64|arm64)|win32-(?:x64|arm64))\.(?:tar\.gz|zip)|(?:desktop|npm|web)\/[A-Za-z0-9][A-Za-z0-9._+@/-]*)$/u.exec(line);
     invariant(match, "Malformed SHA256SUMS line.");
     if (match[2] !== "release-manifest.json") validatePath(match[2]);
     invariant(!result.has(match[2]), `Duplicate SHA256SUMS path: ${match[2]}.`);

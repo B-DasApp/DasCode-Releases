@@ -77,8 +77,16 @@ def main() -> None:
         raise SystemExit("GitHub release metadata must not replace exact Git ref verification")
     for marker in (
         "desktop-macos-dmg",
+        'invariant(manifest.schemaVersion === 4',
+        '"cli-archive"',
         'const includesMacos = manifest.release.desktopTargets === "windows-macos";',
-        "const expectedFileCount = 5 + Number(includesMacos);",
+        "const expectedFileCount = 10 + Number(includesMacos);",
+        'roleCounts.get("cli-archive") ?? 0) === 5',
+        "darwin-arm64.tar.gz",
+        "linux-x64.tar.gz",
+        "linux-arm64.tar.gz",
+        "win32-x64.zip",
+        "win32-arm64.zip",
         '["desktop-macos-dmg", includesMacos ? 1 : 0]',
         'desktop/DasCode-${manifest.release.version}-arm64.dmg',
         'expectedDesktopTargets === "windows-macos"',
@@ -98,6 +106,8 @@ def main() -> None:
     for marker in ("releaseAssetPaths", "const assetPaths = releaseAssetPaths(root, manifest)"):
         if marker not in publisher_text:
             raise SystemExit(f"GitHub publisher is missing deterministic asset-order policy: {marker}")
+    if 'file.role === "cli-archive"' not in contract_text:
+        raise SystemExit("release contract must publish verified CLI archives as GitHub assets")
     control_sha = re.search(r'WORKER_CONTROL_SHA = "([0-9a-f]{40})"', contract_text)
     if control_sha is None or len(set(control_sha.group(1))) == 1:
         raise SystemExit("private worker-control SHA must be an exact non-placeholder commit")

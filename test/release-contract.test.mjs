@@ -20,7 +20,7 @@ const version = "0.0.33-nightly.20260816.90";
 const installerSha512 = `${"A".repeat(86)}==`;
 function manifest() {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     requestId: "dcr-123-1-nightly-aaaaaaaaaaaa",
     channel: "nightly",
     source: {
@@ -63,6 +63,11 @@ function manifest() {
       { path: "desktop/nightly.yml", sha256: "2".repeat(64), size: 11, mediaType: "text/yaml", role: "desktop-updater-manifest" },
       { path: "desktop/DasCode.exe.blockmap", sha256: "3".repeat(64), size: 12, mediaType: "application/octet-stream", role: "desktop-blockmap" },
       { path: `desktop/DasCode-${version}-arm64.dmg`, sha256: "6".repeat(64), size: 16, mediaType: "application/x-apple-diskimage", role: "desktop-macos-dmg" },
+      { path: `dascode-${version}-darwin-arm64.tar.gz`, sha256: "7".repeat(64), size: 17, mediaType: "application/octet-stream", role: "cli-archive" },
+      { path: `dascode-${version}-linux-x64.tar.gz`, sha256: "8".repeat(64), size: 18, mediaType: "application/octet-stream", role: "cli-archive" },
+      { path: `dascode-${version}-linux-arm64.tar.gz`, sha256: "9".repeat(64), size: 19, mediaType: "application/octet-stream", role: "cli-archive" },
+      { path: `dascode-${version}-win32-x64.zip`, sha256: "a".repeat(64), size: 20, mediaType: "application/octet-stream", role: "cli-archive" },
+      { path: `dascode-${version}-win32-arm64.zip`, sha256: "b".repeat(64), size: 21, mediaType: "application/octet-stream", role: "cli-archive" },
       { path: "npm/dascode.tgz", sha256: "4".repeat(64), size: 13, mediaType: "application/gzip", role: "npm-package" },
       { path: "web/vercel-prebuilt.tgz", sha256: "5".repeat(64), size: 14, mediaType: "application/gzip", role: "web-prebuilt" },
     ],
@@ -128,6 +133,9 @@ test("keeps Stable on the Windows-only desktop contract", () => {
   value.files.find((file) => file.role === "desktop-updater-manifest").path =
     "desktop/latest.yml";
   value.files = value.files.filter((file) => file.role !== "desktop-macos-dmg");
+  for (const file of value.files.filter((file) => file.role === "cli-archive")) {
+    file.path = file.path.replace(version, value.release.version);
+  }
   const stableExpected = {
     ...expected,
     requestId: value.requestId,
@@ -138,7 +146,7 @@ test("keeps Stable on the Windows-only desktop contract", () => {
     version: value.release.version,
   };
 
-  assert.equal(validateManifest(value, stableExpected).files.length, 5);
+  assert.equal(validateManifest(value, stableExpected).files.length, 10);
 });
 
 test("requires exactly one manual-install arm64 DMG for Nightly", () => {
@@ -170,7 +178,7 @@ test("requires exactly one manual-install arm64 DMG for Nightly", () => {
     version: value.release.version,
   };
 
-  assert.equal(validateManifest(value, nightlyExpected).files.length, 6);
+  assert.equal(validateManifest(value, nightlyExpected).files.length, 11);
 
   const wrongArchitecture = structuredClone(value);
   wrongArchitecture.files.find((file) => file.role === "desktop-macos-dmg").path =
@@ -189,7 +197,7 @@ test("requires exactly one manual-install arm64 DMG for Nightly", () => {
   );
 
   const names = releaseAssetNames(releaseAssetPaths("/release", value));
-  assert.equal(names.length, 6);
+  assert.equal(names.length, 11);
   assert.ok(names.indexOf(`DasCode-${value.release.version}-arm64.dmg`) < names.indexOf("nightly.yml"));
 });
 
@@ -199,7 +207,7 @@ test("keeps Windows-only Nightly bundles free of macOS release files", () => {
   value.files = value.files.filter((file) => file.role !== "desktop-macos-dmg");
   const windowsExpected = { ...expected, desktopTargets: "windows" };
 
-  assert.equal(validateManifest(value, windowsExpected).files.length, 5);
+  assert.equal(validateManifest(value, windowsExpected).files.length, 10);
 
   const includesMacos = structuredClone(value);
   includesMacos.files.push(manifest().files.find((file) => file.role === "desktop-macos-dmg"));
@@ -220,8 +228,8 @@ test("parses the updater subset used for independent linkage", () => {
 });
 
 test("SHA256SUMS includes the manifest and rejects duplicates", () => {
-  const sums = parseSha256Sums(`${"a".repeat(64)}  release-manifest.json\n${"b".repeat(64)}  npm/dascode.tgz\n`);
-  assert.equal(sums.size, 2);
+  const sums = parseSha256Sums(`${"a".repeat(64)}  release-manifest.json\n${"b".repeat(64)}  npm/dascode.tgz\n${"c".repeat(64)}  dascode-${version}-linux-x64.tar.gz\n`);
+  assert.equal(sums.size, 3);
   assert.throws(() => parseSha256Sums(`${"a".repeat(64)}  release-manifest.json\n${"b".repeat(64)}  release-manifest.json\n`), /Duplicate/);
 });
 
@@ -240,13 +248,20 @@ test("maps release asset paths without forwarding array indexes as basename suff
   );
 });
 
-test("publishes the complete Nightly desktop set with one arm64 DMG in deterministic order", () => {
+test("publishes the complete Nightly desktop and CLI set in deterministic order", () => {
   const names = releaseAssetNames(releaseAssetPaths("/release", manifest()));
-  assert.equal(names.length, 6);
+  assert.equal(names.length, 11);
   assert.equal(new Set(names.map((name) => name.toLowerCase())).size, names.length);
 
   const payloadIndexes = names
-    .map((name, index) => (name.endsWith(".exe") || name.endsWith(".dmg") ? index : -1))
+    .map((name, index) =>
+      name.endsWith(".exe") ||
+      name.endsWith(".dmg") ||
+      name.endsWith(".tar.gz") ||
+      name.endsWith(".zip")
+        ? index
+        : -1,
+    )
     .filter((index) => index >= 0);
   const blockmapIndexes = names
     .map((name, index) => (name.endsWith(".blockmap") ? index : -1))
@@ -265,6 +280,23 @@ test("publishes the complete Nightly desktop set with one arm64 DMG in determini
     () => releaseAssetPaths("/release", unknownRole),
     /Unsupported public release asset role/,
   );
+});
+
+test("requires all five exact version-bound CLI archive targets", () => {
+  const wrongExtension = manifest();
+  wrongExtension.files.find(
+    (file) => file.path === `dascode-${version}-linux-x64.tar.gz`,
+  ).path = `dascode-${version}-linux-x64.zip`;
+  assert.throws(
+    () => validateManifest(wrongExtension, expected),
+    /exact release version and supported targets/,
+  );
+
+  const missingTarget = manifest();
+  missingTarget.files = missingTarget.files.filter(
+    (file) => file.path !== `dascode-${version}-win32-arm64.zip`,
+  );
+  assert.throws(() => validateManifest(missingTarget, expected), /files count is invalid/);
 });
 
 test("requires the exact reviewed Vercel channel router", () => {
