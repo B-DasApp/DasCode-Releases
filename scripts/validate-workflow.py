@@ -44,6 +44,8 @@ def main() -> None:
     for marker in ('operation: "build-bundle"', "return_run_details: true"):
         if marker not in worker_text:
             raise SystemExit(f"worker client is missing policy marker: {marker}")
+    if "worker_ref: WORKER_CONTROL_REF" in worker_text:
+        raise SystemExit("worker dispatch must stay within GitHub's 25-input limit")
     for marker in (
         'ref !== "refs/heads/main"',
         'refProtected !== "true"',
