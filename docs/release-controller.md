@@ -193,3 +193,26 @@ lookup. Alias assignment uses Vercel's team-scoped REST API only after reloading
 deployment and proving its exact hostname, deployment ID, owner, project, production target, and
 ready state. The controller then confirms that the requested channel domain is a non-redirect alias
 on that deployment before making the final HTTPS identity check.
+
+## Worker performance and publication verification
+
+The worker-control pin selects the implementation, independently of the application source SHA.
+Updating `.github/workflows/release-worker.yml` on `dascode/main` alone does not change releases.
+Promote the reviewed worker to the control ref and update `WORKER_CONTROL_SHA` together while
+release dispatch is paused; resume only after the protected controller validation passes.
+
+The worker runs non-server tests and three server shards alongside native builds after its short
+shared client build. Windows packaging waits only for the Linux x64 WSL archive; final assembly
+still requires every test and every selected archive to pass.
+
+npm verification reads only the exact version's metadata and the channel dist-tags. Both requests
+are unauthenticated, cache-revalidated GETs. The verifier reports attempt counts, elapsed time, and
+whether the version, tag, or registry request is pending. Transient failures retry within fixed
+bounds. Integrity mismatch, invalid metadata, or a newer channel tag fails closed; a successful
+verification still requires the frozen tarball's exact integrity and the exact requested tag.
+
+The post-publication verification window is 15 minutes, and the npm publication job allows 20
+minutes to include setup and publishing. These are limits, not fixed waits: verification returns
+as soon as the required registry state is visible. A slow registry update does not justify
+skipping verification or republishing the package. Retry only the failed publication jobs using
+the original immutable bundle when recovering an interrupted release.
