@@ -326,7 +326,8 @@ jobs:
     # npm provenance accepts GitHub-hosted runners only. Keep this credentialed
     # publication boundary off third-party and self-hosted runner pools.
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # Leave room for the bounded 15-minute registry verification after publish.
+    timeout-minutes: 20
     environment: production
     permissions:
       contents: read

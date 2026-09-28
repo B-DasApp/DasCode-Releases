@@ -64,6 +64,8 @@ def main() -> None:
         raise SystemExit("npm canonicalization must remain outside the production/OIDC boundary")
     if "id-token: write" not in publish_npm or "environment: production" not in publish_npm:
         raise SystemExit("only the frozen npm publication job may receive npm OIDC authority")
+    if "timeout-minutes: 20" not in publish_npm:
+        raise SystemExit("npm publication must leave room for its bounded registry verification")
     if "runs-on: ubuntu-24.04" not in publish_npm or "blacksmith-" in publish_npm:
         raise SystemExit("npm trusted publishing must remain on a GitHub-hosted runner")
     for forbidden in ("validate-bundle.mjs", "prepare-npm-publication.mjs", "npm ci"):
