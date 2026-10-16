@@ -60,6 +60,12 @@ def main() -> None:
     publish_npm = text.split("  publish-npm:\n", 1)[1].split("  publish-github:\n", 1)[0]
     publish_github = text.split("  publish-github:\n", 1)[1].split("  publish-web:\n", 1)[0]
     publish_web = text.split("  publish-web:\n", 1)[1]
+    if "needs: [authorize, acquire, prepare-npm, publish-github]" not in publish_npm:
+        raise SystemExit("npm launcher publication must wait for native GitHub assets")
+    if "needs: [authorize, acquire, prepare-npm]" not in publish_github or "needs.publish-npm" in publish_github:
+        raise SystemExit("GitHub runtime publication must precede npm")
+    if "needs: [authorize, acquire, publish-github, publish-npm]" not in publish_web:
+        raise SystemExit("hosted web must wait for both public distributions")
     if "id-token: none" not in prepare_npm or "environment: production" in prepare_npm:
         raise SystemExit("npm canonicalization must remain outside the production/OIDC boundary")
     if "id-token: write" not in publish_npm or "environment: production" not in publish_npm:
@@ -96,8 +102,8 @@ def main() -> None:
         '"win32-arm64"',
         '["desktop-macos-dmg", includesMacos ? 1 : 0]',
         'desktop/DasCode-${manifest.release.version}-arm64.dmg',
-        'expectedDesktopTargets === "windows-macos"',
-        "package/dist/resource-monitor/darwin-arm64/dascode-resource-monitor",
+        "package/bin/dascode.mjs",
+        "package/dist/bin.mjs",
     ):
         if marker not in contract_text:
             raise SystemExit(f"release contract is missing Nightly macOS arm64 policy marker: {marker}")

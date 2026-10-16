@@ -39,7 +39,7 @@ def inspect(mode: str, archive_path: Path) -> object:
     total = 0
     selected: tarfile.TarInfo | None = None
     release_marker: tarfile.TarInfo | None = None
-    resource_monitors: dict[str, dict[str, int]] = {}
+    launcher_files: dict[str, dict[str, int]] = {}
     with tarfile.open(archive_path, mode="r:gz") as archive:
         members = archive.getmembers()
         if not members or len(members) > MAX_ENTRIES:
@@ -63,8 +63,15 @@ def inspect(mode: str, archive_path: Path) -> object:
                     if selected is not None:
                         raise ValueError("npm archive has duplicate metadata")
                     selected = member
-                if member.isfile() and name.startswith("package/dist/resource-monitor/"):
-                    resource_monitors[name] = {"mode": member.mode, "size": member.size}
+                allowed = {
+                    "package", "package/bin", "package/dist", "package/package.json",
+                    "package/bin/dascode.mjs", "package/dist/bin.mjs", "package/README.md",
+                    "package/LICENSE", "package/LICENSE.md",
+                }
+                if name not in allowed:
+                    raise ValueError("npm launcher contains an unexpected payload")
+                if member.isfile() and name in ("package/bin/dascode.mjs", "package/dist/bin.mjs"):
+                    launcher_files[name] = {"mode": member.mode, "size": member.size}
             else:
                 allowed = (
                     name in (".vercel", ".vercel/output", ".vercel/output/config.json", ".vercel/output/static")
@@ -91,7 +98,7 @@ def inspect(mode: str, archive_path: Path) -> object:
             return {"config": metadata, "release": json.loads(read_member(archive, release_marker))}
         return {
             "packageJson": metadata,
-            "resourceMonitors": dict(sorted(resource_monitors.items())),
+            "launcherFiles": dict(sorted(launcher_files.items())),
         }
 
 
