@@ -527,30 +527,24 @@ export function validateNpmMetadata(packageJson, expectedVersion) {
   }
 }
 
-export function validateNpmArchive(path, expectedVersion, expectedDesktopTargets) {
+export function validateNpmArchive(path, expectedVersion, _expectedDesktopTargets) {
   const inspected = inspectTar("npm", path);
   invariant(isRecord(inspected), "npm archive inspection is invalid.");
-  exactKeys(inspected, ["packageJson", "resourceMonitors"]);
+  exactKeys(inspected, ["packageJson", "launcherFiles"]);
   validateNpmMetadata(inspected.packageJson, expectedVersion);
-  invariant(isRecord(inspected.resourceMonitors), "npm resource-monitor inventory is invalid.");
-  const expectedResourceMonitors = [
-    "package/dist/resource-monitor/win32-x64/dascode-resource-monitor.exe",
-    ...(expectedDesktopTargets === "windows-macos"
-      ? ["package/dist/resource-monitor/darwin-arm64/dascode-resource-monitor"]
-      : []),
-  ];
-  invariant(
-    JSON.stringify(Object.keys(inspected.resourceMonitors).sort()) ===
-      JSON.stringify(expectedResourceMonitors.sort()),
-    "npm package does not contain the exact release resource-monitor set.",
-  );
-  for (const [path, entry] of Object.entries(inspected.resourceMonitors)) {
-    invariant(isRecord(entry), `npm resource-monitor record is invalid: ${path}.`);
+  invariant(inspected.packageJson.bin?.dascode === "./bin/dascode.mjs", "npm launcher bin is invalid.");
+  for (const key of ["dependencies", "optionalDependencies"]) {
+    invariant(!Object.hasOwn(inspected.packageJson, key), "npm launcher must have no runtime dependencies.");
+  }
+  invariant(isRecord(inspected.launcherFiles), "npm launcher inventory is invalid.");
+  exactKeys(inspected.launcherFiles, ["package/bin/dascode.mjs", "package/dist/bin.mjs"]);
+  for (const [path, entry] of Object.entries(inspected.launcherFiles)) {
+    invariant(isRecord(entry), `npm launcher record is invalid: ${path}.`);
     exactKeys(entry, ["mode", "size"]);
-    invariant(Number.isSafeInteger(entry.size) && entry.size > 0, "npm package contains an empty resource monitor.");
-    invariant(Number.isSafeInteger(entry.mode) && entry.mode >= 0 && entry.mode <= 0o7777, "npm package contains an invalid resource-monitor mode.");
-    if (path.includes("/darwin-")) {
-      invariant((entry.mode & 0o111) !== 0, "Darwin resource monitors must be executable.");
+    invariant(Number.isSafeInteger(entry.size) && entry.size > 0, "npm launcher contains an empty entry point.");
+    invariant(Number.isSafeInteger(entry.mode) && entry.mode >= 0 && entry.mode <= 0o7777, "npm launcher contains an invalid mode.");
+    if (path === "package/bin/dascode.mjs") {
+      invariant((entry.mode & 0o111) !== 0, "npm launcher bin must be executable.");
     }
   }
 }

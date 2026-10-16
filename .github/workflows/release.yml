@@ -321,8 +321,8 @@ jobs:
 
   publish-npm:
     name: Publish frozen npm package
-    needs: [authorize, acquire, prepare-npm]
-    if: needs.acquire.result == 'success' && needs.prepare-npm.result == 'success'
+    needs: [authorize, acquire, prepare-npm, publish-github]
+    if: needs.acquire.result == 'success' && needs.prepare-npm.result == 'success' && needs.publish-github.result == 'success'
     # npm provenance accepts GitHub-hosted runners only. Keep this credentialed
     # publication boundary off third-party and self-hosted runner pools.
     runs-on: ubuntu-24.04
@@ -377,8 +377,8 @@ jobs:
 
   publish-github:
     name: Publish public desktop release
-    needs: [authorize, acquire, publish-npm]
-    if: needs.acquire.result == 'success' && needs.publish-npm.result == 'success'
+    needs: [authorize, acquire, prepare-npm]
+    if: needs.acquire.result == 'success' && needs.prepare-npm.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: production
@@ -402,8 +402,8 @@ jobs:
       - id: npm-package
         name: Reproduce and revalidate npm-owned publication bytes
         run: node scripts/prepare-npm-publication.mjs --archive "$RUNNER_TEMP/release-bundle/${{ steps.bundle.outputs.npm_path }}" --version "${{ steps.bundle.outputs.version }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --output-dir "$RUNNER_TEMP/npm-publication" --github-output "$GITHUB_OUTPUT"
-      - name: Reconfirm this run still owns the npm channel
-        run: node scripts/verify-npm-publication.mjs --phase after --tarball "${{ steps.npm-package.outputs.path }}" --version "${{ steps.bundle.outputs.version }}" --dist-tag "${{ steps.bundle.outputs.npm_dist_tag }}"
+      - name: Check npm identity before exposing native assets
+        run: node scripts/verify-npm-publication.mjs --phase before --tarball "${{ steps.npm-package.outputs.path }}" --version "${{ steps.bundle.outputs.version }}" --dist-tag "${{ steps.bundle.outputs.npm_dist_tag }}"
       - id: release-token
         name: Mint production-scoped public release token
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
@@ -420,8 +420,8 @@ jobs:
 
   publish-web:
     name: Deploy prebuilt static web release
-    needs: [authorize, acquire, publish-github]
-    if: needs.acquire.result == 'success' && needs.publish-github.result == 'success'
+    needs: [authorize, acquire, publish-github, publish-npm]
+    if: needs.acquire.result == 'success' && needs.publish-github.result == 'success' && needs.publish-npm.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: production

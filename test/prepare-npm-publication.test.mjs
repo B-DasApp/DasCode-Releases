@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -26,23 +25,16 @@ test("safely repacks a worker archive into deterministic npm-owned bytes", () =>
     JSON.stringify({
       name: "@das-org/dascode",
       version: "1.2.4-nightly.20260816.9",
+      bin: { dascode: "./bin/dascode.mjs" },
       repository: {
         type: "git",
         url: "git+https://github.com/B-DasApp/DasCode-Releases.git",
       },
     }),
   );
-  writeFileSync(join(packageDir, "dist", "cli.js"), "console.log('ok');\n");
-  for (const [platform, binary] of [
-    ["win32-x64", "dascode-resource-monitor.exe"],
-    ["darwin-arm64", "dascode-resource-monitor"],
-  ]) {
-    const monitorDir = join(packageDir, "dist", "resource-monitor", platform);
-    mkdirSync(monitorDir, { recursive: true });
-    const monitorPath = join(monitorDir, binary);
-    writeFileSync(monitorPath, `${platform}-monitor`);
-    if (platform.startsWith("darwin-")) chmodSync(monitorPath, 0o755);
-  }
+  mkdirSync(join(packageDir, "bin"));
+  writeFileSync(join(packageDir, "bin/dascode.mjs"), "#!/usr/bin/env node\nconsole.log('ok');\n", { mode: 0o755 });
+  writeFileSync(join(packageDir, "dist/bin.mjs"), "import '../bin/dascode.mjs';\n");
   const archive = join(root, "worker.tgz");
   execFileSync("tar", ["-czf", archive, "-C", join(root, "source"), "package"]);
 
@@ -62,7 +54,7 @@ test("safely repacks a worker archive into deterministic npm-owned bytes", () =>
   assert.equal(digest(first), digest(second));
 });
 
-test("rejects a Nightly package containing a non-executable Darwin resource monitor", () => {
+test("rejects an obsolete Node payload in the npm launcher", () => {
   const root = mkdtempSync(join(tmpdir(), "dascode-canonical-npm-monitor-"));
   const packageDir = join(root, "source", "package");
   mkdirSync(join(packageDir, "dist", "resource-monitor", "win32-x64"), { recursive: true });
@@ -72,6 +64,7 @@ test("rejects a Nightly package containing a non-executable Darwin resource moni
     JSON.stringify({
       name: "@das-org/dascode",
       version: "1.2.4-nightly.20260816.9",
+      bin: { dascode: "./bin/dascode.mjs" },
       repository: {
         type: "git",
         url: "git+https://github.com/B-DasApp/DasCode-Releases.git",
@@ -97,6 +90,6 @@ test("rejects a Nightly package containing a non-executable Darwin resource moni
         desktopTargets: "windows-macos",
         outputDir: join(root, "output"),
       }),
-    /Darwin resource monitors must be executable/,
+    /npm launcher contains an unexpected payload/,
   );
 });
