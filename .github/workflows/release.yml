@@ -403,7 +403,7 @@ jobs:
         name: Reproduce and revalidate npm-owned publication bytes
         run: node scripts/prepare-npm-publication.mjs --archive "$RUNNER_TEMP/release-bundle/${{ steps.bundle.outputs.npm_path }}" --version "${{ steps.bundle.outputs.version }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --output-dir "$RUNNER_TEMP/npm-publication" --github-output "$GITHUB_OUTPUT"
       - name: Check npm identity before exposing native assets
-        run: node scripts/verify-npm-publication.mjs --phase before --tarball "${{ steps.npm-package.outputs.path }}" --version "${{ steps.bundle.outputs.version }}" --dist-tag "${{ steps.bundle.outputs.npm_dist_tag }}"
+        run: node scripts/verify-npm-publication.mjs --phase before --tarball "${{ steps.npm-package.outputs.path }}" --version "${{ steps.bundle.outputs.version }}" --dist-tag "${{ steps.bundle.outputs.npm_dist_tag }}" --github-output "$GITHUB_OUTPUT"
       - id: release-token
         name: Mint production-scoped public release token
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
