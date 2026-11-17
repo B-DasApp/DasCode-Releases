@@ -22,7 +22,14 @@ bridge before cutover; do not restore a credential to unprotected private workfl
   pinned worker-control ref/SHA, local reusable implementation path/SHA, separate source ref/SHA,
   run title, first attempt, conclusion, final artifact identity, and REST artifact digest. It never
   retrieves private logs.
-- `production` gates three ordered publication jobs: npm, then a public desktop release, then Vercel.
+- `release-approval` is the single human gate. Its job holds no credential and runs after the
+  bundle is verified and the npm package canonicalized, so the reviewer reads the run summary ("what
+  approval will publish": version, source SHA, every file with its SHA-256) and approves exactly
+  those bytes. `source-reader` and `production` keep their exact-main branch restriction and their
+  secrets but have no required reviewer; every credentialed job `needs` the approval, and reruns of
+  failed publication jobs reuse it.
+- `production` holds three ordered publication jobs: a public desktop release, then npm, then
+  Vercel. (The jobs run in that order; earlier text listed npm first.)
   Stable is Windows x64 only. Nightly defaults to Windows x64 only; its maintainer may explicitly
   select `windows-macos` to add one unsigned, manual-install macOS arm64 DMG. A macOS-only channel
   release is intentionally unsupported because it could replace the latest Nightly prerelease while
@@ -59,14 +66,16 @@ Before merging this workflow to public `main`:
 3. Enable immutable releases after confirming the existing feed is compatible. The controller also
    refuses to overwrite any published asset and verifies every REST asset digest before publishing a
    draft.
-4. Create the `source-reader` environment. Restrict deployment branches to protected `main`, add a
+4. Create the `release-approval` environment: exact-main branch restriction, one required reviewer,
+   no secrets. Create the `source-reader` environment with the same branch restriction and no
    required reviewer, and add:
    - secret `SOURCE_READER_APP_ID`
    - secret `SOURCE_READER_PRIVATE_KEY`
 5. Install that GitHub App only on private `B-DasApp/DasCode`, with **Actions: read/write** and
    **Contents: read**. It needs no administration, issues, pull requests, environments, packages, or
    release-repository access.
-6. Create the `production` environment with the same exact-main restriction and a required reviewer.
+6. Create the `production` environment with the same exact-main restriction and no required
+   reviewer (the approval gate precedes it).
    Add `VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`. The token must have access to that
    exact linked project; do not add a CLI scope override.
 7. Create a second GitHub App installed only on public `B-DasApp/DasCode-Releases`, with
@@ -137,8 +146,16 @@ branch, while the branch selected in the UI determines the workflow SHA. Therefo
 3. Confirm the npm trusted-publisher binding and all Vercel domains/TLS.
 4. Select public `main` in **Run workflow**, choose the channel and desktop targets, enter the
    comma-separated runtime targets, then enter the full
-   private ref and its full lowercase commit SHA, review the `source-reader` deployment, then review
-   `production` only after bundle verification succeeds.
+   private ref and its full lowercase commit SHA, then review the `release-approval` deployment
+   once the verified bundle summary is shown.
+
+After publication the `verify-publication` job (no environment, no secret) re-reads the public
+release and hosted marker: the release must be published, immutable and the right prerelease kind;
+its asset list, sizes and REST digests must equal the verified bundle and `SHA256SUMS`; and the
+hosted domain (plus `code.bclouder.dev` for Stable) must serve the exact release identity. The final
+`summary` job writes a stage table and, when a stage failed or was cancelled and the optional
+repository secret `RELEASE_ALERT_WEBHOOK` is set, posts one line with the stage name and run URL to
+it (Discord and Slack-compatible).
 
 Allowed sources are deliberately channel-bound:
 

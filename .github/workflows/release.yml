@@ -284,6 +284,8 @@ jobs:
           path: ${{ runner.temp }}/release-bundle
       - id: bundle
         run: node scripts/validate-bundle.mjs --bundle-dir "$RUNNER_TEMP/release-bundle" --request-id "${{ needs.authorize.outputs.request_id }}" --channel "${{ needs.authorize.outputs.channel }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --runtime-targets "${{ needs.authorize.outputs.runtime_targets }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --version "${{ needs.authorize.outputs.version }}" --worker-run-id "${{ needs.acquire.outputs.worker_run_id }}" --worker-run-attempt 1 --controller-run-id "$GITHUB_RUN_ID" --controller-run-attempt "${{ needs.acquire.outputs.controller_run_attempt }}" --controller-workflow-sha "$GITHUB_WORKFLOW_SHA" --github-output "$GITHUB_OUTPUT"
+      - name: Summarize exactly what approval will publish
+        run: node scripts/release-summary.mjs --bundle-dir "$RUNNER_TEMP/release-bundle"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24.18.0
@@ -311,10 +313,30 @@ jobs:
           compression-level: 0
           retention-days: 30
 
+  # The single human checkpoint. It runs after the bundle is verified and canonicalized and before
+  # anything is public, so the reviewer reads the summary above and approves exactly those bytes.
+  # No credential lives in this environment; the credentialed jobs below keep their own.
+  approve:
+    name: Approve verified release for publication
+    needs: [authorize, acquire, prepare-npm]
+    if: needs.acquire.result == 'success' && needs.prepare-npm.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: release-approval
+    permissions:
+      contents: none
+      id-token: none
+    steps:
+      - name: Record approval of the verified bundle
+        env:
+          VERSION: ${{ needs.authorize.outputs.version }}
+          SOURCE_SHA: ${{ needs.authorize.outputs.source_sha }}
+        run: echo "Approved $VERSION from $SOURCE_SHA for publication." >> "$GITHUB_STEP_SUMMARY"
+
   publish-npm:
     name: Publish frozen npm package
-    needs: [authorize, acquire, prepare-npm, publish-github]
-    if: needs.acquire.result == 'success' && needs.prepare-npm.result == 'success' && needs.publish-github.result == 'success'
+    needs: [authorize, acquire, prepare-npm, approve, publish-github]
+    if: needs.acquire.result == 'success' && needs.prepare-npm.result == 'success' && needs.approve.result == 'success' && needs.publish-github.result == 'success'
     # npm provenance accepts GitHub-hosted runners only. Keep this credentialed
     # publication boundary off third-party and self-hosted runner pools.
     runs-on: ubuntu-24.04
@@ -369,8 +391,8 @@ jobs:
 
   publish-github:
     name: Publish public desktop release
-    needs: [authorize, acquire, prepare-npm]
-    if: needs.acquire.result == 'success' && needs.prepare-npm.result == 'success'
+    needs: [authorize, acquire, prepare-npm, approve]
+    if: needs.acquire.result == 'success' && needs.prepare-npm.result == 'success' && needs.approve.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: production
@@ -412,8 +434,8 @@ jobs:
 
   publish-web:
     name: Deploy prebuilt static web release
-    needs: [authorize, acquire, publish-github, publish-npm]
-    if: needs.acquire.result == 'success' && needs.publish-github.result == 'success' && needs.publish-npm.result == 'success'
+    needs: [authorize, acquire, approve, publish-github, publish-npm]
+    if: needs.acquire.result == 'success' && needs.approve.result == 'success' && needs.publish-github.result == 'success' && needs.publish-npm.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: production
@@ -469,28 +491,64 @@ jobs:
             --verification-key "${RELEASE_SOURCE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
           verify_release_marker() {
-            local origin="$1"
-            local label="$2"
-            local marker
-            local marker_path
-            for attempt in $(seq 1 20); do
-              marker_path="/__dascode/release.json?verify=${RELEASE_SOURCE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}"
-              marker="$(curl --fail --silent --show-error --max-time 10 --max-filesize 4096 \
-                --header 'Cache-Control: no-cache' "${origin%/}${marker_path}")" || marker=""
-              if [[ -n "$marker" ]] && \
-                MARKER="$marker" node -e 'const m=JSON.parse(process.env.MARKER);if(m.schemaVersion!==1||m.channel!==process.env.RELEASE_CHANNEL||m.version!==process.env.RELEASE_VERSION||m.sourceSha!==process.env.RELEASE_SOURCE_SHA)process.exit(1)'; then
-                return 0
-              fi
-              if [[ "$attempt" != 20 ]]; then sleep 5; fi
-            done
-            echo "$label did not serve the exact release identity over HTTPS." >&2
-            return 1
+            node scripts/verify-hosted-marker.mjs --origin "$1" --channel "$RELEASE_CHANNEL" \
+              --version "$RELEASE_VERSION" --source-sha "$RELEASE_SOURCE_SHA" \
+              --verification-key "${RELEASE_SOURCE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           }
 
           domain="${{ steps.bundle.outputs.hosted_domain }}"
           node scripts/assign-vercel-alias.mjs --deployment-url "$deployment_url" --domain "$domain" --channel "$RELEASE_CHANNEL"
-          verify_release_marker "https://$domain" "Aliased deployment"
+          verify_release_marker "https://$domain"
           if [[ "$RELEASE_CHANNEL" == stable ]]; then
             node scripts/assign-vercel-alias.mjs --deployment-url "$deployment_url" --domain "code.bclouder.dev" --channel "$RELEASE_CHANNEL"
-            verify_release_marker "https://code.bclouder.dev" "Stable router alias"
+            verify_release_marker "https://code.bclouder.dev"
           fi
+
+  verify-publication:
+    name: Verify the public release end to end
+    needs: [authorize, acquire, publish-github, publish-npm, publish-web]
+    if: needs.acquire.result == 'success' && needs.publish-github.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-web.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: none
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.acquire.outputs.bundle_name }}
+          path: ${{ runner.temp }}/release-bundle
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.18.0
+      - name: Compare the published release and hosted identity with the verified bundle
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/verify-publication.mjs --bundle-dir "$RUNNER_TEMP/release-bundle"
+
+  summary:
+    name: Release status
+    needs: [authorize, acquire, prepare-npm, approve, publish-github, publish-npm, publish-web, verify-publication]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: none
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Write the stage table and alert on failure
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          RELEASE_CHANNEL: ${{ needs.authorize.outputs.channel }}
+          RELEASE_VERSION: ${{ needs.authorize.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_ALERT_WEBHOOK: ${{ secrets.RELEASE_ALERT_WEBHOOK }}
+        run: node scripts/notify-release.mjs
