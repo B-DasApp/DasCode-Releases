@@ -29,6 +29,7 @@ def main() -> None:
     required = (
         "environment: source-reader",
         "environment: production",
+        "environment: release-approval",
         "retention-days: 30",
         '--controller-workflow-ref "$GITHUB_WORKFLOW_REF"',
         "npm ci --ignore-scripts --no-audit",
@@ -36,7 +37,7 @@ def main() -> None:
         "node scripts/verify-vercel-deployment.mjs",
         "node scripts/assign-vercel-alias.mjs",
         '--verification-key "${RELEASE_SOURCE_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"',
-        'verify_release_marker "https://$domain" "Aliased deployment"',
+        'verify_release_marker "https://$domain"',
     )
     for marker in required:
         if marker not in text:
@@ -59,12 +60,26 @@ def main() -> None:
     prepare_npm = text.split("  prepare-npm:\n", 1)[1].split("  publish-npm:\n", 1)[0]
     publish_npm = text.split("  publish-npm:\n", 1)[1].split("  publish-github:\n", 1)[0]
     publish_github = text.split("  publish-github:\n", 1)[1].split("  publish-web:\n", 1)[0]
-    publish_web = text.split("  publish-web:\n", 1)[1]
-    if "needs: [authorize, acquire, prepare-npm, publish-github]" not in publish_npm:
+    publish_web_and_after = text.split("  publish-web:\n", 1)[1]
+    publish_web = publish_web_and_after.split("  verify-publication:\n", 1)[0]
+    verify_publication = publish_web_and_after.split("  verify-publication:\n", 1)[1].split("  summary:\n", 1)[0]
+    summary = publish_web_and_after.split("  summary:\n", 1)[1]
+    approve = text.split("  approve:\n", 1)[1].split("  publish-npm:\n", 1)[0]
+    prepare_npm = prepare_npm.split("  approve:\n", 1)[0]
+    if "environment: release-approval" not in approve or "secrets." in approve or "contents: none" not in approve:
+        raise SystemExit("the human approval job must use the release-approval environment and hold no credentials")
+    for name, job in (("verify-publication", verify_publication), ("summary", summary)):
+        if "environment:" in job or "id-token: write" in job:
+            raise SystemExit(f"{name} must run outside every environment and without OIDC authority")
+    if "secrets." in verify_publication or "secrets.RELEASE_ALERT_WEBHOOK" not in summary:
+        raise SystemExit("only the summary job may read the optional alert webhook secret")
+    if summary.count("secrets.") != 1:
+        raise SystemExit("the summary job must read no secret except the alert webhook")
+    if "needs: [authorize, acquire, prepare-npm, approve, publish-github]" not in publish_npm:
         raise SystemExit("npm launcher publication must wait for native GitHub assets")
-    if "needs: [authorize, acquire, prepare-npm]" not in publish_github or "needs.publish-npm" in publish_github:
+    if "needs: [authorize, acquire, prepare-npm, approve]" not in publish_github or "needs.publish-npm" in publish_github:
         raise SystemExit("GitHub runtime publication must precede npm")
-    if "needs: [authorize, acquire, publish-github, publish-npm]" not in publish_web:
+    if "needs: [authorize, acquire, approve, publish-github, publish-npm]" not in publish_web:
         raise SystemExit("hosted web must wait for both public distributions")
     if "id-token: none" not in prepare_npm or "environment: production" in prepare_npm:
         raise SystemExit("npm canonicalization must remain outside the production/OIDC boundary")
@@ -80,7 +95,8 @@ def main() -> None:
     for forbidden in ("VERCEL_TEAM_SLUG", "--scope", "vercel alias", "vercel curl"):
         if forbidden in publish_web:
             raise SystemExit(f"Vercel publication must use the exact linked org/project without {forbidden}")
-    if '${origin%/}${marker_path}' not in publish_web or 'curl --fail' not in publish_web:
+    marker_text = Path("scripts/verify-hosted-marker.mjs").read_text(encoding="utf-8")
+    if "scripts/verify-hosted-marker.mjs" not in publish_web or "Authorization" in marker_text:
         raise SystemExit("Vercel publication must retain an unauthenticated public-alias HTTPS check")
     if "timeout-minutes: 45" not in publish_github:
         raise SystemExit("GitHub desktop publication must retain its bounded release timeout")
