@@ -17,6 +17,9 @@ const apiRoot = "https://api.github.com";
 const apiVersion = "2026-03-10";
 export const WORKER_RUN_TITLE_SETTLEMENT_MS = 60_000;
 const preActiveRunStatuses = new Set(["queued", "pending", "requested", "waiting"]);
+// A completed job with any other conclusion means the final bundle can never be assembled.
+const nonFatalJobConclusions = new Set(["success", "skipped", "neutral"]);
+const maxJobsPerPage = 100;
 
 function options(argv) {
   const values = new Map();
@@ -101,6 +104,66 @@ export function validatePolledRun(run, expected, { now, titleSettlementDeadline 
   throw new Error("Worker run request identity mismatch.");
 }
 
+// The controller's logs are public, so job and step names are reduced to a conservative alphabet.
+export function sanitizeLabel(value) {
+  return String(value ?? "").replace(/[^A-Za-z0-9 ()/._,-]/gu, "?").slice(0, 120);
+}
+
+/**
+ * Picks the job that most likely started the failure. A job cancelled by matrix fail-fast or by a
+ * human is only reported when no job failed outright.
+ */
+export function findFatalJob(jobs) {
+  const fatal = jobs.filter(
+    (job) => job.status === "completed" && !nonFatalJobConclusions.has(job.conclusion),
+  );
+  if (fatal.length === 0) return null;
+  const completedAt = (job) => Date.parse(job.completed_at ?? "") || Number.MAX_SAFE_INTEGER;
+  const ordered = [...fatal].sort((left, right) => {
+    const cancelledOrder = Number(left.conclusion === "cancelled") - Number(right.conclusion === "cancelled");
+    return cancelledOrder || completedAt(left) - completedAt(right);
+  });
+  const job = ordered[0];
+  const step = (job.steps ?? []).find(
+    (candidate) => candidate.status === "completed" && !nonFatalJobConclusions.has(candidate.conclusion),
+  );
+  return {
+    job: sanitizeLabel(job.name),
+    step: step ? sanitizeLabel(step.name) : "unknown",
+    conclusion: sanitizeLabel(job.conclusion),
+  };
+}
+
+async function readFatalJob(token, runId) {
+  const response = await request(
+    token,
+    `/repos/${SOURCE_REPOSITORY}/actions/runs/${runId}/jobs?filter=latest&per_page=${maxJobsPerPage}`,
+  );
+  const body = await response.json();
+  // Job data is only an early signal; the run-level conclusion stays authoritative. A listing that
+  // needs pagination is not trusted for early failure.
+  if (!Array.isArray(body.jobs) || !Number.isSafeInteger(body.total_count) || body.total_count > maxJobsPerPage) {
+    return null;
+  }
+  return findFatalJob(body.jobs);
+}
+
+function describeFatalJob(fatal) {
+  return `Private worker job "${fatal.job}" ended with ${fatal.conclusion} at step "${fatal.step}"; logs were not retrieved.`;
+}
+
+function reportFatalJob(fatal) {
+  const message = describeFatalJob(fatal);
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    appendFileSync(
+      process.env.GITHUB_STEP_SUMMARY,
+      `### Private worker failed early\n\n- Job: ${fatal.job}\n- Step: ${fatal.step}\n- Conclusion: ${fatal.conclusion}\n\nThe remaining worker jobs are cancelled because the release bundle can no longer be assembled.\n`,
+      "utf8",
+    );
+  }
+  throw new Error(message);
+}
+
 async function sleep(milliseconds) {
   await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -164,7 +227,7 @@ async function dispatch(token, args) {
   process.stdout.write(`Dispatched exact private worker run ${result.workflow_run_id}; private logs will not be retrieved.\n`);
 }
 
-async function waitForRun(token, args) {
+export async function waitForRun(token, args) {
   const runId = required(args, "worker-run-id");
   const expected = {
     runId,
@@ -191,16 +254,48 @@ async function waitForRun(token, args) {
       continue;
     }
     if (run.status === "completed") {
+      if (run.conclusion !== "success") {
+        const fatal = await readFatalJob(token, runId).catch(() => null);
+        if (fatal) reportFatalJob(fatal);
+      }
       invariant(run.conclusion === "success", `Private worker ended with ${run.conclusion ?? "no conclusion"}; logs were not retrieved.`);
       appendFileSync(required(args, "github-output"), "complete=true\nworker_run_attempt=1\n", "utf8");
       process.stdout.write("Private worker completed successfully.\n");
       return;
     }
     invariant(["queued", "in_progress", "pending", "requested", "waiting"].includes(run.status), "Worker entered an unknown state.");
+    let fatal = null;
+    try {
+      fatal = await readFatalJob(token, runId);
+    } catch (error) {
+      process.stdout.write(`Worker job listing unavailable; continuing with run-level polling (${error instanceof Error ? error.message : "unknown error"}).\n`);
+    }
+    if (fatal) reportFatalJob(fatal);
     await sleep(15_000);
   }
   appendFileSync(required(args, "github-output"), "complete=false\n", "utf8");
   process.stdout.write("Worker is still active; a fresh App token will continue the bounded wait.\n");
+}
+
+/**
+ * Cancels exactly the dispatched worker run. Needs a token with Actions write access, which the
+ * read-only wait phases do not hold.
+ */
+export async function cancelRun(token, args) {
+  const runId = required(args, "worker-run-id");
+  const response = await request(token, `/repos/${SOURCE_REPOSITORY}/actions/runs/${runId}`);
+  validateStaticRunIdentity(await response.json(), { runId });
+  const cancel = await request(
+    token,
+    `/repos/${SOURCE_REPOSITORY}/actions/runs/${runId}/cancel`,
+    { method: "POST" },
+    [202, 409],
+  );
+  process.stdout.write(
+    cancel.status === 202
+      ? `Requested cancellation of private worker run ${runId}.\n`
+      : `Private worker run ${runId} was already finished; nothing to cancel.\n`,
+  );
 }
 
 async function downloadArtifact(token, url, destination, expectedDigest) {
@@ -265,6 +360,7 @@ async function main() {
   if (command === "dispatch") await dispatch(token, args);
   else if (command === "wait") await waitForRun(token, args);
   else if (command === "download") await download(token, args);
+  else if (command === "cancel") await cancelRun(token, args);
   else throw new Error(`Unsupported command: ${command}.`);
 }
 

@@ -10,8 +10,12 @@ import {
 } from "../scripts/lib/release-contract.mjs";
 import {
   WORKER_RUN_TITLE_SETTLEMENT_MS,
+  cancelRun,
+  findFatalJob,
+  sanitizeLabel,
   validatePolledRun,
   validateRun,
+  waitForRun,
 } from "../scripts/worker-client.mjs";
 
 const expected = {
@@ -142,4 +146,157 @@ test("static and reusable-workflow identity mismatches fail before title settlem
       name,
     );
   }
+});
+
+const job = (name, status, conclusion, extra = {}) => ({ name, status, conclusion, steps: [], ...extra });
+
+test("early failure ignores running, successful, skipped and neutral jobs", () => {
+  assert.equal(
+    findFatalJob([
+      job("a", "in_progress", null),
+      job("b", "queued", null),
+      job("c", "completed", "success"),
+      job("d", "completed", "skipped"),
+      job("e", "completed", "neutral"),
+    ]),
+    null,
+  );
+});
+
+test("early failure names the failed job and step for every fatal conclusion", () => {
+  for (const conclusion of ["failure", "timed_out", "cancelled", "action_required"]) {
+    assert.deepEqual(
+      findFatalJob([
+        job("ok", "completed", "success"),
+        job("Test web 1", "completed", conclusion, {
+          steps: [
+            { name: "Set up job", status: "completed", conclusion: "success" },
+            { name: "Test web unit and browser", status: "completed", conclusion },
+          ],
+        }),
+      ]),
+      { job: "Test web 1", step: "Test web unit and browser", conclusion },
+    );
+  }
+});
+
+test("early failure prefers the earliest real failure over cancelled siblings", () => {
+  const result = findFatalJob([
+    job("cancelled first", "completed", "cancelled", { completed_at: "2026-11-17T09:00:00Z" }),
+    job("late failure", "completed", "failure", { completed_at: "2026-11-17T09:05:00Z" }),
+    job("early failure", "completed", "failure", { completed_at: "2026-11-17T09:01:00Z" }),
+  ]);
+  assert.equal(result?.job, "early failure");
+});
+
+test("early failure reports an unknown step when no step failed", () => {
+  assert.equal(findFatalJob([job("Setup", "completed", "failure")])?.step, "unknown");
+});
+
+test("public log labels keep only a conservative alphabet and length", () => {
+  assert.equal(sanitizeLabel("Test web 1 (ubuntu)/x.y_z,w-1"), "Test web 1 (ubuntu)/x.y_z,w-1");
+  assert.equal(sanitizeLabel("a\nb::set-output ${{secrets.X}}"), "a?b??set-output ???secrets.X??");
+  assert.equal(sanitizeLabel("x".repeat(500)).length, 120);
+  assert.equal(sanitizeLabel(undefined), "");
+});
+
+const waitArgs = (overrides = {}) =>
+  new Map(
+    Object.entries({
+      "worker-run-id": expected.runId,
+      channel: "nightly",
+      "desktop-targets": "windows-macos",
+      "runtime-targets": "linux-x64",
+      "request-id": "request-id",
+      "source-ref": "refs/heads/dascode/main",
+      "source-sha": "a".repeat(40),
+      "timeout-seconds": "60",
+      "github-output": "/dev/null",
+      ...overrides,
+    }),
+  );
+
+const waitTitle = "release-worker / nightly / windows-macos / linux-x64 / request-id";
+
+async function withFetch(handler, body) {
+  const original = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const path = new URL(url).pathname + new URL(url).search;
+    calls.push({ path, method: init.method ?? "GET" });
+    const { status = 200, json = {} } = handler(path, init.method ?? "GET");
+    return new Response(JSON.stringify(json), { status, headers: { "content-type": "application/json" } });
+  };
+  try {
+    return await body(calls);
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+test("waiting fails on the first failed worker job without waiting for the run", async () => {
+  await withFetch(
+    (path) => {
+      if (path.includes("/jobs")) {
+        return {
+          json: {
+            total_count: 2,
+            jobs: [
+              job("Test server 1", "in_progress", null),
+              job("Test web 1", "completed", "failure", {
+                steps: [{ name: "Test web unit and browser", status: "completed", conclusion: "failure" }],
+              }),
+            ],
+          },
+        };
+      }
+      return { json: workerRun({ status: "in_progress", display_title: waitTitle }) };
+    },
+    async () => {
+      await assert.rejects(
+        waitForRun("token", waitArgs()),
+        /Private worker job "Test web 1" ended with failure at step "Test web unit and browser"; logs were not retrieved\./,
+      );
+    },
+  );
+});
+
+test("waiting keeps polling the run when the jobs listing is unavailable or needs pagination", async () => {
+  for (const jobsResponse of [{ status: 500 }, { json: { total_count: 101, jobs: [job("x", "completed", "failure")] } }]) {
+    await withFetch(
+      (path) => (path.includes("/jobs") ? jobsResponse : { json: workerRun({ status: "completed", conclusion: "success", display_title: waitTitle }) }),
+      async () => {
+        await waitForRun("token", waitArgs());
+      },
+    );
+  }
+});
+
+test("cancelling checks the exact worker identity before posting", async () => {
+  await withFetch(
+    (path, method) => (method === "POST" ? { status: 202 } : { json: workerRun({ status: "in_progress" }) }),
+    async (calls) => {
+      await cancelRun("token", waitArgs());
+      assert.deepEqual(calls.map((call) => `${call.method} ${call.path}`), [
+        `GET /repos/${SOURCE_REPOSITORY}/actions/runs/${expected.runId}`,
+        `POST /repos/${SOURCE_REPOSITORY}/actions/runs/${expected.runId}/cancel`,
+      ]);
+    },
+  );
+  await withFetch(
+    () => ({ json: workerRun({ head_sha: "0".repeat(40) }) }),
+    async (calls) => {
+      await assert.rejects(cancelRun("token", waitArgs()), /Worker run head SHA mismatch\./);
+      assert.equal(calls.some((call) => call.method === "POST"), false);
+    },
+  );
+});
+
+test("cancelling an already finished worker is a no-op", async () => {
+  await withFetch(
+    (path, method) => (method === "POST" ? { status: 409 } : { json: workerRun({ status: "completed" }) }),
+    async () => {
+      await cancelRun("token", waitArgs());
+    },
+  );
 });

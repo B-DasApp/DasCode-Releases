@@ -205,6 +205,15 @@ The worker runs non-server tests and three server shards alongside native builds
 shared client build. Windows packaging waits only for the Linux x64 WSL archive; final assembly
 still requires every test and every selected archive to pass.
 
+GitHub cannot cancel a whole run when one job fails, so the controller does it. Every 15 seconds the
+wait step also reads the worker's job results. When any job concludes with anything other than
+success, skipped or neutral, the wait step fails with the job and step name (the run-level
+conclusion remains authoritative; job data is only an early signal and is ignored when the listing
+is unavailable). A final acquisition step then cancels exactly the dispatched worker run with a
+fresh Actions-write token after re-verifying its identity. That step also runs when the controller
+run itself fails or is cancelled. Worker logs are never retrieved. The acquisition job waits at
+most two 45-minute phases and has a 110-minute limit.
+
 npm verification reads only the exact version's metadata and the channel dist-tags. Both requests
 are unauthenticated, cache-revalidated GETs. The verifier reports attempt counts, elapsed time, and
 whether the version, tag, or registry request is pending. Transient failures retry within fixed

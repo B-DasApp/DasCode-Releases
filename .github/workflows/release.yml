@@ -102,7 +102,7 @@ jobs:
     needs: authorize
     if: needs.authorize.result == 'success'
     runs-on: ubuntu-24.04
-    timeout-minutes: 235
+    timeout-minutes: 110
     environment: source-reader
     outputs:
       worker_run_id: ${{ steps.dispatch.outputs.worker_run_id }}
@@ -209,39 +209,11 @@ jobs:
           SOURCE_READER_TOKEN: ${{ steps.wait-token-2.outputs.token }}
         run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --runtime-targets "${{ needs.authorize.outputs.runtime_targets }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
 
-      - id: wait-token-3
-        if: steps.wait-1.outputs.complete != 'true' && steps.wait-2.outputs.complete != 'true'
-        name: Mint source-reader token for wait phase 3
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
-        with: *source-reader-read-token
-
-      - id: wait-3
-        if: steps.wait-1.outputs.complete != 'true' && steps.wait-2.outputs.complete != 'true'
-        name: Wait for private worker (phase 3)
-        env:
-          SOURCE_READER_TOKEN: ${{ steps.wait-token-3.outputs.token }}
-        run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --runtime-targets "${{ needs.authorize.outputs.runtime_targets }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
-
-      - id: wait-token-4
-        if: steps.wait-1.outputs.complete != 'true' && steps.wait-2.outputs.complete != 'true' && steps.wait-3.outputs.complete != 'true'
-        name: Mint source-reader token for wait phase 4
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
-        with: *source-reader-read-token
-
-      - id: wait-4
-        if: steps.wait-1.outputs.complete != 'true' && steps.wait-2.outputs.complete != 'true' && steps.wait-3.outputs.complete != 'true'
-        name: Wait for private worker (phase 4)
-        env:
-          SOURCE_READER_TOKEN: ${{ steps.wait-token-4.outputs.token }}
-        run: node scripts/worker-client.mjs --command wait --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}" --channel "${{ needs.authorize.outputs.channel }}" --desktop-targets "${{ needs.authorize.outputs.desktop_targets }}" --runtime-targets "${{ needs.authorize.outputs.runtime_targets }}" --request-id "${{ needs.authorize.outputs.request_id }}" --source-ref "${{ needs.authorize.outputs.source_ref }}" --source-sha "${{ needs.authorize.outputs.source_sha }}" --timeout-seconds 2700 --github-output "$GITHUB_OUTPUT"
-
       - name: Require completed worker
         env:
           COMPLETE_1: ${{ steps.wait-1.outputs.complete }}
           COMPLETE_2: ${{ steps.wait-2.outputs.complete }}
-          COMPLETE_3: ${{ steps.wait-3.outputs.complete }}
-          COMPLETE_4: ${{ steps.wait-4.outputs.complete }}
-        run: test "$COMPLETE_1" = true || test "$COMPLETE_2" = true || test "$COMPLETE_3" = true || test "$COMPLETE_4" = true
+        run: test "$COMPLETE_1" = true || test "$COMPLETE_2" = true
 
       - id: download-token
         name: Mint fresh source-reader token for artifact transfer
@@ -268,6 +240,26 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
+
+      # The private worker keeps running when the controller stops, so a failure or a cancellation
+      # of this job must stop it too. The wait tokens are read-only; cancelling needs a fresh write
+      # token, and the cancel command first re-verifies that the run is the exact dispatched worker.
+      - id: cancel-token
+        if: ${{ (failure() || cancelled()) && steps.dispatch.outputs.worker_run_id != '' }}
+        name: Mint source-reader token to cancel the private worker
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.SOURCE_READER_APP_ID }}
+          private-key: ${{ secrets.SOURCE_READER_PRIVATE_KEY }}
+          owner: B-DasApp
+          repositories: DasCode
+          permission-actions: write
+
+      - name: Cancel the private worker when acquisition stops early
+        if: ${{ (failure() || cancelled()) && steps.dispatch.outputs.worker_run_id != '' }}
+        env:
+          SOURCE_READER_TOKEN: ${{ steps.cancel-token.outputs.token }}
+        run: node scripts/worker-client.mjs --command cancel --token-env SOURCE_READER_TOKEN --worker-run-id "${{ steps.dispatch.outputs.worker_run_id }}"
 
   prepare-npm:
     name: Canonicalize npm package without credentials
