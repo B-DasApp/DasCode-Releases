@@ -65,7 +65,12 @@ def main() -> None:
     verify_publication = publish_web_and_after.split("  verify-publication:\n", 1)[1].split("  summary:\n", 1)[0]
     summary = publish_web_and_after.split("  summary:\n", 1)[1]
     approve = text.split("  approve:\n", 1)[1].split("  publish-npm:\n", 1)[0]
-    prepare_npm = prepare_npm.split("  approve:\n", 1)[0]
+    prepare_npm = prepare_npm.split("  check-relay:\n", 1)[0]
+    check_relay = text.split("  check-relay:\n", 1)[1].split("  approve:\n", 1)[0]
+    if "environment: source-reader" not in check_relay or "permission-actions: read" not in check_relay or "permission-actions: write" in check_relay:
+        raise SystemExit("the relay readiness check must use the read-only source-reader token")
+    if "needs.check-relay.result == 'success'" not in approve:
+        raise SystemExit("approval must wait for the relay readiness check")
     if "environment: release-approval" not in approve or "secrets." in approve or "contents: none" not in approve:
         raise SystemExit("the human approval job must use the release-approval environment and hold no credentials")
     for name, job in (("verify-publication", verify_publication), ("summary", summary)):
