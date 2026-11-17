@@ -7,6 +7,7 @@ import {
   releaseAssetPaths,
   sha256File,
 } from "./lib/release-contract.mjs";
+import { fetchRead, readUntil } from "./lib/transient-retry.mjs";
 
 const repository = "B-DasApp/DasCode-Releases";
 const apiRoot = "https://api.github.com";
@@ -23,7 +24,7 @@ function invariant(condition, message) {
 }
 
 async function api(token, url, init = {}, statuses = [200]) {
-  const response = await fetch(url.startsWith("https:") ? url : `${apiRoot}${url}`, {
+  const response = await fetchRead(url.startsWith("https:") ? url : `${apiRoot}${url}`, {
     ...init,
     headers: {
       Accept: "application/vnd.github+json",
@@ -32,8 +33,11 @@ async function api(token, url, init = {}, statuses = [200]) {
       "User-Agent": "dascode-public-release-controller",
       ...(init.headers ?? {}),
     },
-    signal: AbortSignal.timeout(10 * 60_000),
     ...(init.body instanceof ReadableStream ? { duplex: "half" } : {}),
+  }, {
+    timeoutMs: 10 * 60_000,
+    onRetry: (reason, attempt) =>
+      process.stdout.write(`Transient GitHub API failure (${reason}); retrying read, attempt ${attempt}.\n`),
   });
   if (!statuses.includes(response.status)) throw new Error(`GitHub release API returned HTTP ${response.status}; body suppressed.`);
   return response;
@@ -88,9 +92,11 @@ async function requireReleaseTag(token, tag, target, createIfMissing) {
       },
       [201],
     );
-    response = await api(
-      token,
-      `/repos/${repository}/git/ref/tags/${encodeURIComponent(tag)}`,
+    // A ref created a moment ago can briefly read as missing (run 116 failed on exactly this).
+    // Re-read a bounded number of times; a tag that never appears still fails the strict check below.
+    response = await readUntil(
+      () => api(token, `/repos/${repository}/git/ref/tags/${encodeURIComponent(tag)}`, {}, [200, 404]),
+      (candidate) => candidate.status === 200,
     );
   }
   invariant(response.status === 200, "Release tag is missing after exact creation.");

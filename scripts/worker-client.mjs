@@ -12,6 +12,7 @@ import {
   WORKER_WORKFLOW_ID,
   WORKER_WORKFLOW_PATH,
 } from "./lib/release-contract.mjs";
+import { fetchRead } from "./lib/transient-retry.mjs";
 
 const apiRoot = "https://api.github.com";
 const apiVersion = "2026-03-10";
@@ -44,8 +45,11 @@ function invariant(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-async function request(token, path, init = {}, expectedStatuses = [200]) {
-  const response = await fetch(`${apiRoot}${path}`, {
+const noteRetry = (reason, attempt) =>
+  process.stdout.write(`Transient GitHub API failure (${reason}); retrying read, attempt ${attempt}.\n`);
+
+async function request(token, path, init = {}, expectedStatuses = [200], readOptions = {}) {
+  const response = await fetchRead(`${apiRoot}${path}`, {
     ...init,
     headers: {
       Accept: "application/vnd.github+json",
@@ -54,8 +58,7 @@ async function request(token, path, init = {}, expectedStatuses = [200]) {
       "User-Agent": "dascode-public-release-controller",
       ...(init.headers ?? {}),
     },
-    signal: AbortSignal.timeout(60_000),
-  });
+  }, { timeoutMs: 60_000, onRetry: noteRetry, ...readOptions });
   if (!expectedStatuses.includes(response.status)) {
     throw new Error(`GitHub API request failed with HTTP ${response.status}; response body suppressed.`);
   }
@@ -138,6 +141,10 @@ async function readFatalJob(token, runId) {
   const response = await request(
     token,
     `/repos/${SOURCE_REPOSITORY}/actions/runs/${runId}/jobs?filter=latest&per_page=${maxJobsPerPage}`,
+    {},
+    [200],
+    // An early signal must not slow the poll; the next 15 s poll is its retry.
+    { delaysMs: [] },
   );
   const body = await response.json();
   // Job data is only an early signal; the run-level conclusion stays authoritative. A listing that
@@ -167,6 +174,7 @@ function reportFatalJob(fatal) {
 async function sleep(milliseconds) {
   await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
+const sleepMs = sleep;
 
 async function dispatch(token, args) {
   const channel = required(args, "channel");
@@ -298,23 +306,40 @@ export async function cancelRun(token, args) {
   );
 }
 
-async function downloadArtifact(token, url, destination, expectedDigest) {
-  const first = await request(token, new URL(url).pathname, { redirect: "manual" }, [200, 302]);
-  let response = first;
-  if (first.status === 302) {
-    const location = first.headers.get("location");
-    invariant(location, "Artifact redirect had no location.");
-    const target = new URL(location);
-    invariant(target.protocol === "https:", "Artifact redirect must use HTTPS.");
-    response = await fetch(target, { redirect: "error", signal: AbortSignal.timeout(10 * 60_000) });
-    invariant(response.ok, `Artifact storage returned HTTP ${response.status}.`);
+const artifactTransferAttempts = 3;
+
+// Each attempt re-requests the artifact URL: the storage redirect is short-lived and signed, so a
+// retry must not reuse it. Only the transfer is retried; the digest check below is final.
+async function transferArtifact(token, url, destination, { sleep = sleepMs } = {}) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const first = await request(token, new URL(url).pathname, { redirect: "manual" }, [200, 302]);
+      let response = first;
+      if (first.status === 302) {
+        const location = first.headers.get("location");
+        invariant(location, "Artifact redirect had no location.");
+        const target = new URL(location);
+        invariant(target.protocol === "https:", "Artifact redirect must use HTTPS.");
+        response = await fetch(target, { redirect: "error", signal: AbortSignal.timeout(10 * 60_000) });
+        invariant(response.ok, `Artifact storage returned HTTP ${response.status}.`);
+      }
+      invariant(response.body, "Artifact download had no response body.");
+      const temporary = `${destination}.partial`;
+      const hash = createHash("sha256");
+      const hashingStream = new TransformStream({ transform(chunk, controller) { hash.update(chunk); controller.enqueue(chunk); } });
+      await pipeline(response.body.pipeThrough(hashingStream), createWriteStream(temporary, { mode: 0o600 }));
+      return { temporary, digest: `sha256:${hash.digest("hex")}` };
+    } catch (error) {
+      if (attempt >= artifactTransferAttempts) throw error;
+      process.stdout.write(`Artifact transfer attempt ${attempt} failed (${error instanceof Error ? error.name : "error"}); requesting a fresh download URL.\n`);
+      await sleep(5_000 * attempt);
+    }
   }
-  invariant(response.body, "Artifact download had no response body.");
-  const temporary = `${destination}.partial`;
-  const hash = createHash("sha256");
-  const hashingStream = new TransformStream({ transform(chunk, controller) { hash.update(chunk); controller.enqueue(chunk); } });
-  await pipeline(response.body.pipeThrough(hashingStream), createWriteStream(temporary, { mode: 0o600 }));
-  invariant(`sha256:${hash.digest("hex")}` === expectedDigest, "Downloaded Actions artifact digest mismatch.");
+}
+
+export async function downloadArtifact(token, url, destination, expectedDigest, options) {
+  const { temporary, digest } = await transferArtifact(token, url, destination, options);
+  invariant(digest === expectedDigest, "Downloaded Actions artifact digest mismatch.");
   renameSync(temporary, destination);
 }
 
