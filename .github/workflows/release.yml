@@ -313,13 +313,47 @@ jobs:
           compression-level: 0
           retention-days: 30
 
+  # The hosted web build and the clients it serves talk to the relay, so nothing is published until the
+  # relay deploy that carries the newest relay change in this source commit has succeeded. Failing here
+  # happens before the approval gate; after deploying the relay, rerun only the failed jobs.
+  check-relay:
+    name: Require the relay deployed for this source
+    needs: [authorize, acquire]
+    if: needs.acquire.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: source-reader
+    permissions:
+      contents: read
+      id-token: none
+    steps:
+      - name: Checkout protected public controller only
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: relay-token
+        name: Mint read-only source-reader token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.SOURCE_READER_APP_ID }}
+          private-key: ${{ secrets.SOURCE_READER_PRIVATE_KEY }}
+          owner: B-DasApp
+          repositories: DasCode
+          permission-actions: read
+          permission-contents: read
+      - name: Require a successful relay deploy for the newest relay change
+        env:
+          SOURCE_READER_TOKEN: ${{ steps.relay-token.outputs.token }}
+        run: node scripts/check-relay-deployed.mjs --token-env SOURCE_READER_TOKEN --source-sha "${{ needs.authorize.outputs.source_sha }}"
+
   # The single human checkpoint. It runs after the bundle is verified and canonicalized and before
   # anything is public, so the reviewer reads the summary above and approves exactly those bytes.
   # No credential lives in this environment; the credentialed jobs below keep their own.
   approve:
     name: Approve verified release for publication
-    needs: [authorize, acquire, prepare-npm]
-    if: needs.acquire.result == 'success' && needs.prepare-npm.result == 'success'
+    needs: [authorize, acquire, prepare-npm, check-relay]
+    if: needs.acquire.result == 'success' && needs.prepare-npm.result == 'success' && needs.check-relay.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     environment: release-approval
@@ -532,7 +566,7 @@ jobs:
 
   summary:
     name: Release status
-    needs: [authorize, acquire, prepare-npm, approve, publish-github, publish-npm, publish-web, verify-publication]
+    needs: [authorize, acquire, prepare-npm, check-relay, approve, publish-github, publish-npm, publish-web, verify-publication]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

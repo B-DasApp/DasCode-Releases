@@ -7,7 +7,7 @@ import { alertMessage, notify, summarizeStages } from "../scripts/notify-release
 
 const ok = (result = "success") => ({ result });
 const allSuccess = {
-  authorize: ok(), acquire: ok(), "prepare-npm": ok(), approve: ok(),
+  authorize: ok(), acquire: ok(), "prepare-npm": ok(), "check-relay": ok(), approve: ok(),
   "publish-github": ok(), "publish-npm": ok(), "publish-web": ok(), "verify-publication": ok(),
 };
 const runUrl = "https://github.com/B-DasApp/DasCode-Releases/actions/runs/1";

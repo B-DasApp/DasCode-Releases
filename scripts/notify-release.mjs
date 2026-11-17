@@ -11,6 +11,7 @@ const stageOrder = [
   ["authorize", "Authorize request"],
   ["acquire", "Acquire verified private build"],
   ["prepare-npm", "Canonicalize npm package"],
+  ["check-relay", "Relay deployed for this source"],
   ["approve", "Human approval"],
   ["publish-github", "Publish desktop release"],
   ["publish-npm", "Publish npm package"],

@@ -149,6 +149,13 @@ branch, while the branch selected in the UI determines the workflow SHA. Therefo
    private ref and its full lowercase commit SHA, then review the `release-approval` deployment
    once the verified bundle summary is shown.
 
+Before the approval gate, `check-relay` (environment `source-reader`, read-only App token) finds the
+newest commit that touches `infra/relay` in the source commit and requires a successful
+`deploy-relay.yml` run on `dascode/main` whose head is that commit or a descendant. A failed,
+rolled-back or still-running relay deploy fails the release before anything is public; deploy the
+relay (which applies its migrations first), then rerun only the failed jobs. A source commit with no
+relay change passes immediately.
+
 After publication the `verify-publication` job (no environment, no secret) re-reads the public
 release and hosted marker: the release must be published, immutable and the right prerelease kind;
 its asset list, sizes and REST digests must equal the verified bundle and `SHA256SUMS`; and the
