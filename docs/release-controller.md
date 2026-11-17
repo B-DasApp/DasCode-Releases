@@ -214,6 +214,12 @@ fresh Actions-write token after re-verifying its identity. That step also runs w
 run itself fails or is cancelled. Worker logs are never retrieved. The acquisition job waits at
 most two 45-minute phases and has a 110-minute limit.
 
+Controller GitHub API reads (worker polling, artifact listing, release and tag reads) retry network
+errors, timeouts and HTTP 429/5xx three times with 1, 3 and 9 second backoff. Writes are never
+retried. A freshly created release tag is re-read up to six times before the strict tag check runs.
+Artifact transfer retries up to three times and requests a fresh signed download URL each time; the
+REST digest comparison is final and is never retried.
+
 npm verification reads only the exact version's metadata and the channel dist-tags. Both requests
 are unauthenticated, cache-revalidated GETs. The verifier reports attempt counts, elapsed time, and
 whether the version, tag, or registry request is pending. Transient failures retry within fixed
