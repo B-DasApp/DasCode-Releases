@@ -300,3 +300,38 @@ test("cancelling an already finished worker is a no-op", async () => {
     },
   );
 });
+
+test("waiting and cancelling tolerate a worker run that is not visible yet", async () => {
+  let reads = 0;
+  const lagging = (path, method) => {
+    if (method === "POST") return { status: 202 };
+    if (path.includes("/jobs")) return { json: { total_count: 0, jobs: [] } };
+    reads += 1;
+    return reads <= 2
+      ? { status: 404 }
+      : { json: workerRun({ status: "completed", conclusion: "success", display_title: waitTitle }) };
+  };
+  await withFetch(lagging, async () => {
+    await waitForRun("token", waitArgs(), { sleep: async () => {} });
+  });
+  assert.equal(reads, 3);
+  reads = 0;
+  await withFetch(lagging, async (calls) => {
+    await cancelRun("token", waitArgs(), { sleep: async () => {} });
+    assert.equal(calls.at(-1).method, "POST");
+  });
+  assert.equal(reads, 3);
+});
+
+test("cancelling fails when the worker run never becomes visible", async () => {
+  await withFetch(
+    () => ({ status: 404 }),
+    async (calls) => {
+      await assert.rejects(
+        cancelRun("token", waitArgs(), { sleep: async () => {} }),
+        /HTTP 404/,
+      );
+      assert.equal(calls.some((call) => call.method === "POST"), false);
+    },
+  );
+});

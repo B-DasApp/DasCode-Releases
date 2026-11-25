@@ -12,7 +12,7 @@ import {
   WORKER_WORKFLOW_ID,
   WORKER_WORKFLOW_PATH,
 } from "./lib/release-contract.mjs";
-import { fetchRead } from "./lib/transient-retry.mjs";
+import { fetchRead, readUntil } from "./lib/transient-retry.mjs";
 
 const apiRoot = "https://api.github.com";
 const apiVersion = "2026-03-10";
@@ -235,7 +235,7 @@ async function dispatch(token, args) {
   process.stdout.write(`Dispatched exact private worker run ${result.workflow_run_id}; private logs will not be retrieved.\n`);
 }
 
-export async function waitForRun(token, args) {
+export async function waitForRun(token, args, { sleep = sleepMs } = {}) {
   const runId = required(args, "worker-run-id");
   const expected = {
     runId,
@@ -250,7 +250,15 @@ export async function waitForRun(token, args) {
   );
   let run;
   while (Date.now() < timeoutAt) {
-    const response = await request(token, `/repos/${SOURCE_REPOSITORY}/actions/runs/${runId}`);
+    const response = await request(token, `/repos/${SOURCE_REPOSITORY}/actions/runs/${runId}`, {}, [200, 404]);
+    // A run dispatched a moment ago can briefly read as missing (run 45606000656 failed on exactly this
+    // and left its worker running). Only the settlement window tolerates it; a later 404 stays an error.
+    if (response.status === 404) {
+      invariant(Date.now() < titleSettlementDeadline, "GitHub API request failed with HTTP 404; response body suppressed.");
+      process.stdout.write("Worker run is not visible yet; retrying the bounded identity check.\n");
+      await sleep(5_000);
+      continue;
+    }
     run = await response.json();
     const titleSettled = validatePolledRun(run, expected, {
       now: Date.now(),
@@ -289,9 +297,16 @@ export async function waitForRun(token, args) {
  * Cancels exactly the dispatched worker run. Needs a token with Actions write access, which the
  * read-only wait phases do not hold.
  */
-export async function cancelRun(token, args) {
+export async function cancelRun(token, args, { sleep = sleepMs } = {}) {
   const runId = required(args, "worker-run-id");
-  const response = await request(token, `/repos/${SOURCE_REPOSITORY}/actions/runs/${runId}`);
+  // The run may not be visible yet when acquisition stops within seconds of dispatch; an unreachable
+  // worker would otherwise keep running unattended.
+  const response = await readUntil(
+    () => request(token, `/repos/${SOURCE_REPOSITORY}/actions/runs/${runId}`, {}, [200, 404]),
+    (candidate) => candidate.status === 200,
+    { attempts: 12, delayMs: 5_000, sleep },
+  );
+  invariant(response.status === 200, "GitHub API request failed with HTTP 404; response body suppressed.");
   validateStaticRunIdentity(await response.json(), { runId });
   const cancel = await request(
     token,
