@@ -122,7 +122,6 @@ test("static and reusable-workflow identity mismatches fail before title settlem
     ["head SHA", { head_sha: "0".repeat(40) }, /Worker run head SHA mismatch\./],
     ["control ref", { head_branch: "dascode/other" }, /Worker run control ref mismatch\./],
     ["attempt", { run_attempt: 2 }, /first attempt, never a rerun\./],
-    ["missing reusable workflow", { referenced_workflows: [] }, /exactly one reusable implementation workflow\./],
     [
       "reusable workflow SHA",
       {
@@ -146,6 +145,27 @@ test("static and reusable-workflow identity mismatches fail before title settlem
       name,
     );
   }
+});
+
+test("an empty reusable-workflow list settles only before execution and inside the window", () => {
+  const settling = { now: 0, titleSettlementDeadline: WORKER_RUN_TITLE_SETTLEMENT_MS };
+  for (const status of ["queued", "pending", "requested", "waiting"]) {
+    assert.equal(validatePolledRun(workerRun({ status, referenced_workflows: [] }), expected, settling), false, status);
+  }
+  const missing = /exactly one reusable implementation workflow\./;
+  assert.throws(
+    () => validatePolledRun(workerRun({ status: "in_progress", referenced_workflows: [] }), expected, settling),
+    missing,
+  );
+  assert.throws(
+    () => validatePolledRun(
+      workerRun({ status: "queued", referenced_workflows: [] }),
+      expected,
+      { now: WORKER_RUN_TITLE_SETTLEMENT_MS, titleSettlementDeadline: WORKER_RUN_TITLE_SETTLEMENT_MS },
+    ),
+    missing,
+  );
+  assert.throws(() => validateRun(workerRun({ referenced_workflows: [] }), expected), missing);
 });
 
 const job = (name, status, conclusion, extra = {}) => ({ name, status, conclusion, steps: [], ...extra });

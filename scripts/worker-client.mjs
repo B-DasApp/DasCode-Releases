@@ -101,6 +101,16 @@ export function validateRun(run, expected) {
 }
 
 export function validatePolledRun(run, expected, { now, titleSettlementDeadline }) {
+  // A run dispatched seconds ago can list no reusable workflow yet (run 45631707961 failed on exactly this,
+  // while its worker was healthy). Only the pre-execution settlement window tolerates the empty list; a
+  // present-but-wrong reference, or an empty one after the window, still fails.
+  if (
+    (run.referenced_workflows ?? []).length === 0 &&
+    now < titleSettlementDeadline &&
+    preActiveRunStatuses.has(run.status)
+  ) {
+    return false;
+  }
   validateStaticRunIdentity(run, expected);
   if (run.display_title === expected.title) return true;
   if (now < titleSettlementDeadline && preActiveRunStatuses.has(run.status)) return false;
@@ -301,13 +311,18 @@ export async function cancelRun(token, args, { sleep = sleepMs } = {}) {
   const runId = required(args, "worker-run-id");
   // The run may not be visible yet when acquisition stops within seconds of dispatch; an unreachable
   // worker would otherwise keep running unattended.
-  const response = await readUntil(
-    () => request(token, `/repos/${SOURCE_REPOSITORY}/actions/runs/${runId}`, {}, [200, 404]),
-    (candidate) => candidate.status === 200,
+  // The same window can also list no reusable workflow yet; identity is validated once it appears.
+  const read = async () => {
+    const response = await request(token, `/repos/${SOURCE_REPOSITORY}/actions/runs/${runId}`, {}, [200, 404]);
+    return { status: response.status, run: response.status === 200 ? await response.json() : null };
+  };
+  const visible = await readUntil(
+    read,
+    (candidate) => candidate.status === 200 && (candidate.run.referenced_workflows ?? []).length > 0,
     { attempts: 12, delayMs: 5_000, sleep },
   );
-  invariant(response.status === 200, "GitHub API request failed with HTTP 404; response body suppressed.");
-  validateStaticRunIdentity(await response.json(), { runId });
+  invariant(visible.status === 200, "GitHub API request failed with HTTP 404; response body suppressed.");
+  validateStaticRunIdentity(visible.run, { runId });
   const cancel = await request(
     token,
     `/repos/${SOURCE_REPOSITORY}/actions/runs/${runId}/cancel`,
